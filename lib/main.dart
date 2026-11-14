@@ -56,18 +56,15 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   bool _isLoadingNews = true;
   List<_NewsItem> _newsList = [];
 
-  // State Antrean Roll
   List<String> rollQueue = [];
   int rollIndex = 0;
   bool isQueueActive = false;
   bool isAdvancing = false;
   int activeDiceCount = 9;
   
-  // State WebView
   bool _isWebViewLoading = true;
   String _webViewError = "";
 
-  // Warna Google Dark Mode
   final Color gBg = const Color(0xFF131314);
   final Color gSurface = const Color(0xFF303134);
   final Color gTextPrimary = const Color(0xFFE8EAED);
@@ -89,6 +86,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     {"title": "borobudur marathon 2026", "desc": ""},
   ];
 
+  // SCRIPT V37 (Anti Hang & Error Handler)
   final String jsScript = """
     (function() {
         const originalRandom = Math.random;
@@ -128,10 +126,10 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             plannedValues = generatePlan(targetTotal, diceCount);
             seqIndex = 0;
             
-            // Kunci cuma pas muter, 5 detik kemudian buka lagi biar Google gak hang
+            // Cuma kunci selama 3 detik (waktu muter dadu)
             isRolling = true;
             if(timeoutId) clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => { isRolling = false; }, 5000);
+            timeoutId = setTimeout(() => { isRolling = false; }, 3000);
         };
 
         document.addEventListener('click', function(e) {
@@ -143,12 +141,15 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             }
         }, true);
 
+        // Pake try-catch biar mesin fisika Google gak crash
         Math.random = function() {
-            if (isRolling && plannedValues.length > 0) {
-                let val = plannedValues[seqIndex];
-                seqIndex = (seqIndex + 1) % plannedValues.length;
-                return (val - 1 + 0.99) / 6; 
-            }
+            try {
+                if (isRolling && plannedValues.length > 0) {
+                    let val = plannedValues[seqIndex];
+                    seqIndex = (seqIndex + 1) % plannedValues.length;
+                    return (val - 1 + 0.99) / 6; 
+                }
+            } catch (e) {}
             return originalRandom();
         };
     })();
@@ -160,6 +161,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     _pullToRefreshController = PullToRefreshController(
       settings: PullToRefreshSettings(color: Colors.blue[200]!, backgroundColor: gSurface),
       onRefresh: () async {
+        _webViewController?.clearCache(); // Bersihin cache pas ditarik
         _webViewController?.reload();
       },
     );
@@ -174,7 +176,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     setState(() => _showWebView = true);
   }
 
-  // --- API BERITA INDONESIA (MULTI-SOURCE) ---
   Future<void> _fetchLatestNews() async {
     setState(() => _isLoadingNews = true);
     try {
@@ -232,7 +233,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     } catch (_) { return 'Baru saja'; }
   }
 
-  // --- LOGIKA TELEGRAM & ANTREAN ---
   void _applyCurrentQueue() {
     if (rollQueue.isEmpty) return;
     String mode = rollQueue[rollIndex];
@@ -302,7 +302,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     super.dispose();
   }
 
-  // --- UI BUILDERS ---
   @override
   Widget build(BuildContext context) {
     if (_showWebView) {
@@ -311,7 +310,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
         body: SafeArea(
           child: Column(
             children: [
-              // Search Bar Atas
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Container(
@@ -327,7 +325,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                   ),
                 ),
               ),
-              // WebView + Loading + Error Handler
               Expanded(
                 child: Stack(
                   children: [
@@ -336,8 +333,9 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                       initialSettings: InAppWebViewSettings(
                         useShouldOverrideUrlLoading: true,
                         mediaPlaybackRequiresUserGesture: false,
-                        useHybridComposition: true, // Fix White Screen
+                        // useHybridComposition DIHAPUS karena bikin glitch 3D di MediaTek
                         javaScriptEnabled: true,
+                        cacheEnabled: false, // Matiin cache biar selalu fresh
                       ),
                       pullToRefreshController: _pullToRefreshController,
                       onWebViewCreated: (controller) {
