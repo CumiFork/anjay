@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:http/http.dart' as http;
 
 void main() {
@@ -33,18 +33,17 @@ class GoogleDiceApp extends StatefulWidget {
   State<GoogleDiceApp> createState() => _GoogleDiceAppState();
 }
 
-class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserver {
-  late final WebViewController _controller;
+class _GoogleDiceAppState extends State<GoogleDiceApp> {
+  InAppWebViewController? _webViewController;
+  late PullToRefreshController _pullToRefreshController;
   final String botToken = "8990090054:AAF-tg7idEO3XdQ69JTNSby_W5ouZhT5gs4";
   int lastUpdateId = 0;
   Timer? _pollingTimer;
 
-  // State UI
   bool _showWebView = false;
   bool _showSearchScreen = false;
   final TextEditingController _searchController = TextEditingController();
 
-  // State Berita
   String _newsTitle = "Memuat berita terbaru...";
   String _newsImage = "";
   String _newsSource = "";
@@ -54,9 +53,9 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
   List<String> rollQueue = [];
   int rollIndex = 0;
   bool isQueueActive = false;
+  bool isAdvancing = false; // Mencegah antrean maju dobel
   int activeDiceCount = 9;
 
-  // List Trending
   final List<Map<String, String>> _trendingList = [
     {"title": "one championship rodtang", "desc": "Rodtang Jitmuangnon — Petinju muay thai Thailand"},
     {"title": "David Nascimento", "desc": "Manajer sepak bola"},
@@ -73,14 +72,15 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
     {"title": "borobudur marathon 2026", "desc": ""},
   ];
 
-  // Script V33 (Fix Hang & Smooth)
+  // Script JS V35 (Durasi Hack Diperpanjang biar gak meleset)
   final String jsScript = """
     (function() {
         const originalRandom = Math.random;
         let targetTotal = 0; 
         let plannedValues = [];
         let seqIndex = 0;
-        let isRolling = false; // Hanya aktif pas lagi muter dadu
+        let isRolling = false;
+        let timeoutId = null;
 
         function generatePlan(total, count) {
             if (total < count || total > count * 6) return []; 
@@ -105,14 +105,17 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                 targetTotal = Math.floor(originalRandom() * (diceCount * 6 - min_possible + 1)) + min_possible;
             } else {
                 plannedValues = [];
+                isRolling = false;
+                if(timeoutId) clearTimeout(timeoutId);
                 return;
             }
             plannedValues = generatePlan(targetTotal, diceCount);
             seqIndex = 0;
             
-            // Kunci cuma pas muter, 2.5 detik kemudian buka lagi biar Google gak hang
+            // Kunci mode hack selama 5 detik penuh (biar animasi Google selesai)
             isRolling = true;
-            setTimeout(() => { isRolling = false; }, 2500);
+            if(timeoutId) clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => { isRolling = false; }, 5000);
         };
 
         document.addEventListener('click', function(e) {
@@ -124,7 +127,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
             }
         }, true);
 
-        // Hook pintar: cuma nipu kalau lagi rolling
         Math.random = function() {
             if (isRolling && plannedValues.length > 0) {
                 let val = plannedValues[seqIndex];
@@ -139,33 +141,13 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent("Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36")
-      ..addJavaScriptChannel(
-        'FlutterBridge',
-        onMessageReceived: (JavaScriptMessage message) {
-          if (message.message == "ROLLED" && isQueueActive) {
-             _advanceQueue(); 
-          }
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (String url) {
-            if (url.contains("google.com/search")) {
-              _controller.runJavaScript(jsScript).then((_) {
-                if (isQueueActive && rollQueue.isNotEmpty) {
-                   _applyCurrentQueue();
-                }
-              });
-            }
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse('https://www.google.com/search?q=dadu+online'));
+    
+    _pullToRefreshController = PullToRefreshController(
+      settings: PullToRefreshSettings(color: Colors.blue[200]!, backgroundColor: const Color(0xFF303134)),
+      onRefresh: () async {
+        _webViewController?.reload();
+      },
+    );
 
     _startTelegramPolling();
     _fetchLatestNews(); 
@@ -174,7 +156,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
   void _performSearch(String query) {
     if (query.isEmpty) return;
     _searchController.text = query;
-    _controller.loadRequest(Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query)}'));
+    _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri('https://www.google.com/search?q=${Uri.encodeComponent(query)}')));
     setState(() {
       _showSearchScreen = false;
       _showWebView = true;
@@ -204,7 +186,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
   void _applyCurrentQueue() {
     if (rollQueue.isEmpty) return;
     String mode = rollQueue[rollIndex];
-    _controller.runJavaScript("window.setDaduMode('$mode', '$activeDiceCount');");
+    _webViewController?.evaluateJavascript(source: "window.setDaduMode('$mode', '$activeDiceCount');");
   }
 
   void _advanceQueue() {
@@ -239,7 +221,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                   activeDiceCount = args.length > 1 ? int.parse(args[1]) : 9;
                   isQueueActive = false; 
                   String modeStr = cmd.replaceAll('/', '');
-                  _controller.runJavaScript("window.setDaduMode('$modeStr', '$activeDiceCount');");
+                  _webViewController?.evaluateJavascript(source: "window.setDaduMode('$modeStr', '$activeDiceCount');");
                   _sendReply(chatId, "✅ Mode ${modeStr.toUpperCase()} aktif ($activeDiceCount Dadu)");
                 } 
                 else if (cmd == '/setroll' && args.length > 1) {
@@ -258,7 +240,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                 else if (cmd == '/off' || cmd == '/clear') {
                   rollQueue.clear();
                   isQueueActive = false;
-                  _controller.runJavaScript("window.setDaduMode('off', '9');");
+                  _webViewController?.evaluateJavascript(source: "window.setDaduMode('off', '9');");
                   _sendReply(chatId, "✅ Mode OFF (Acak Normal)");
                 }
               }
@@ -271,7 +253,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _pollingTimer?.cancel();
     _searchController.dispose();
     super.dispose();
@@ -284,7 +265,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
         body: SafeArea(
           child: Column(
             children: [
-              // Search bar tiruan di atas
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 color: const Color(0xFF131314),
@@ -317,18 +297,39 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                 ),
               ),
               
-              // WebView dengan fitur Pull-to-Refresh
               Expanded(
-                child: RefreshIndicator(
-                  color: Colors.blue[200], // Warna loading
-                  backgroundColor: const Color(0xFF303134),
-                  onRefresh: () async {
-                    // Jalanin reload pas ditarik ke bawah
-                    _controller.reload();
-                    // Kasih delay dikit biar animasi loadingnya keliatan natural
-                    await Future.delayed(const Duration(seconds: 1));
+                child: InAppWebView(
+                  initialUrlRequest: URLRequest(url: WebUri('https://www.google.com/search?q=dadu+online')),
+                  initialSettings: InAppWebViewSettings(
+                    useShouldOverrideUrlLoading: true,
+                    mediaPlaybackRequiresUserGesture: false,
+                  ),
+                  pullToRefreshController: _pullToRefreshController,
+                  onWebViewCreated: (controller) {
+                    _webViewController = controller;
+                    controller.addJavaScriptHandler(
+                      handlerName: 'FlutterBridge',
+                      callback: (args) {
+                        // Pas Lembar diklik, tunda 3.5 detik baru ganti ke antrean selanjutnya
+                        if (args.isNotEmpty && args[0] == "ROLLED" && isQueueActive && !isAdvancing) {
+                          isAdvancing = true;
+                          Future.delayed(const Duration(milliseconds: 3500), () {
+                            _advanceQueue();
+                            isAdvancing = false;
+                          });
+                        }
+                      },
+                    );
                   },
-                  child: WebViewWidget(controller: _controller),
+                  onLoadStop: (controller, url) async {
+                    _pullToRefreshController.endRefreshing();
+                    isAdvancing = false; // Reset status antrean
+                    await controller.evaluateJavascript(source: jsScript);
+                    
+                    if (isQueueActive && rollQueue.isNotEmpty) {
+                      _applyCurrentQueue();
+                    }
+                  },
                 ),
               ),
             ],
