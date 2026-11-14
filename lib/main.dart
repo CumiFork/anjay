@@ -45,29 +45,29 @@ class GoogleDiceApp extends StatefulWidget {
 class _GoogleDiceAppState extends State<GoogleDiceApp> {
   InAppWebViewController? _webViewController;
   late PullToRefreshController _pullToRefreshController;
-  
   final String botToken = "8990090054:AAF-tg7idEO3XdQ69JTNSby_W5ouZhT5gs4";
   int lastUpdateId = 0;
   Timer? _pollingTimer;
 
-  // Navigation State
-  int _currentTab = 0; // 0: Home, 1: Search, 2: Saved, 3: Settings
+  int _currentTab = 0; 
   bool _showWebView = false;
-  
   final TextEditingController _searchController = TextEditingController();
 
-  // News State
   bool _isLoadingNews = true;
   List<_NewsItem> _newsList = [];
 
-  // Telegram Antrean State
+  // State Antrean Roll
   List<String> rollQueue = [];
   int rollIndex = 0;
   bool isQueueActive = false;
   bool isAdvancing = false;
   int activeDiceCount = 9;
+  
+  // State WebView
+  bool _isWebViewLoading = true;
+  String _webViewError = "";
 
-  // --- KONFIGURASI WARNA GOOGLE ---
+  // Warna Google Dark Mode
   final Color gBg = const Color(0xFF131314);
   final Color gSurface = const Color(0xFF303134);
   final Color gTextPrimary = const Color(0xFFE8EAED);
@@ -128,6 +128,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             plannedValues = generatePlan(targetTotal, diceCount);
             seqIndex = 0;
             
+            // Kunci cuma pas muter, 5 detik kemudian buka lagi biar Google gak hang
             isRolling = true;
             if(timeoutId) clearTimeout(timeoutId);
             timeoutId = setTimeout(() => { isRolling = false; }, 5000);
@@ -156,14 +157,12 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   @override
   void initState() {
     super.initState();
-    
     _pullToRefreshController = PullToRefreshController(
       settings: PullToRefreshSettings(color: Colors.blue[200]!, backgroundColor: gSurface),
       onRefresh: () async {
         _webViewController?.reload();
       },
     );
-
     _startTelegramPolling();
     _fetchLatestNews(); 
   }
@@ -172,11 +171,10 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     if (query.isEmpty) return;
     _searchController.text = query;
     _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri('https://www.google.com/search?q=${Uri.encodeComponent(query)}')));
-    setState(() {
-      _showWebView = true;
-    });
+    setState(() => _showWebView = true);
   }
 
+  // --- API BERITA INDONESIA (MULTI-SOURCE) ---
   Future<void> _fetchLatestNews() async {
     setState(() => _isLoadingNews = true);
     try {
@@ -193,7 +191,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
         if (responses[i].statusCode == 200) {
           final data = jsonDecode(responses[i].body);
           if (data['data'] != null && data['data'] is List && data['data'].isNotEmpty) {
-            for (var j = 0; j < data['data'].length && j < 3; j++) {
+            for (var j = 0; j < data['data'].length && j < 2; j++) {
               final news = data['data'][j];
               fetchedNews.add(_NewsItem(
                 title: news['title'] ?? 'Judul tidak tersedia',
@@ -208,21 +206,15 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
 
       if (fetchedNews.isNotEmpty) {
         fetchedNews.shuffle();
-        setState(() {
-          _newsList = fetchedNews;
-          _isLoadingNews = false;
-        });
-      } else {
-        throw Exception("API Kosong");
-      }
+        setState(() { _newsList = fetchedNews; _isLoadingNews = false; });
+      } else { throw Exception("API Kosong"); }
     } catch (e) {
       setState(() {
         _newsList = [
           _NewsItem(
-            title: "Gagal memuat berita. Tekan tombol refresh di pojok kanan atas.",
+            title: "Gagal memuat berita terbaru. Tekan tombol refresh di pojok kanan atas untuk mencoba lagi.",
             image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Varanus_macraei_%28Blue_Tree_Monitor%29.jpg/800px-Varanus_macraei_%28Blue_Tree_Monitor%29.jpg",
-            source: "Sistem",
-            time: "Sekarang",
+            source: "Sistem", time: "Sekarang",
           ),
         ];
         _isLoadingNews = false;
@@ -240,6 +232,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     } catch (_) { return 'Baru saja'; }
   }
 
+  // --- LOGIKA TELEGRAM & ANTREAN ---
   void _applyCurrentQueue() {
     if (rollQueue.isEmpty) return;
     String mode = rollQueue[rollIndex];
@@ -259,10 +252,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   void _startTelegramPolling() {
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       try {
-        final response = await http.get(
-          Uri.parse('https://api.telegram.org/bot$botToken/getUpdates?offset=${lastUpdateId + 1}&timeout=1'),
-        );
-
+        final response = await http.get(Uri.parse('https://api.telegram.org/bot$botToken/getUpdates?offset=${lastUpdateId + 1}&timeout=1'));
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           if (data['ok'] && data['result'].isNotEmpty) {
@@ -285,9 +275,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                   activeDiceCount = 9;
                   rollQueue.clear();
                   for (int i = 1; i < args.length; i++) {
-                    if (args[i] == 'kecil' || args[i] == 'besar') {
-                      rollQueue.add(args[i]);
-                    }
+                    if (args[i] == 'kecil' || args[i] == 'besar') rollQueue.add(args[i]);
                   }
                   rollIndex = 0;
                   isQueueActive = true;
@@ -295,8 +283,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                   _sendReply(chatId, "✅ Antrean diset: ${rollQueue.join(', ').toUpperCase()}");
                 }
                 else if (cmd == '/off' || cmd == '/clear') {
-                  rollQueue.clear();
-                  isQueueActive = false;
+                  rollQueue.clear(); isQueueActive = false;
                   _webViewController?.evaluateJavascript(source: "window.setDaduMode('off', '9');");
                   _sendReply(chatId, "✅ Mode OFF (Acak Normal)");
                 }
@@ -324,65 +311,74 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
         body: SafeArea(
           child: Column(
             children: [
-              // Search bar ala Google di atas WebView
+              // Search Bar Atas
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                padding: const EdgeInsets.all(8.0),
                 child: Container(
                   height: 48,
                   decoration: BoxDecoration(color: gSurface, borderRadius: BorderRadius.circular(24)),
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: Icon(Icons.arrow_back, color: gTextPrimary),
-                        onPressed: () => setState(() => _showWebView = false),
-                      ),
-                      Expanded(
-                        child: Text(
-                          _searchController.text.isEmpty ? 'dadu online' : _searchController.text,
-                          style: TextStyle(color: gTextPrimary, fontSize: 16),
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      Icon(Icons.mic, color: gTextPrimary),
-                      const SizedBox(width: 12),
-                      Icon(Icons.camera_alt_outlined, color: gTextPrimary),
-                      const SizedBox(width: 16),
+                      IconButton(icon: Icon(Icons.arrow_back, color: gTextPrimary), onPressed: () => setState(() => _showWebView = false)),
+                      Expanded(child: Text(_searchController.text.isEmpty ? 'dadu online' : _searchController.text, style: TextStyle(color: gTextPrimary, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      Icon(Icons.mic, color: gTextPrimary), const SizedBox(width: 12),
+                      Icon(Icons.camera_alt_outlined, color: gTextPrimary), const SizedBox(width: 16),
                     ],
                   ),
                 ),
               ),
-              // WebView
+              // WebView + Loading + Error Handler
               Expanded(
-                child: InAppWebView(
-                  initialUrlRequest: URLRequest(url: WebUri('https://www.google.com/search?q=dadu+online')),
-                  initialSettings: InAppWebViewSettings(
-                    useShouldOverrideUrlLoading: true,
-                    mediaPlaybackRequiresUserGesture: false,
-                  ),
-                  pullToRefreshController: _pullToRefreshController,
-                  onWebViewCreated: (controller) {
-                    _webViewController = controller;
-                    controller.addJavaScriptHandler(
-                      handlerName: 'FlutterBridge',
-                      callback: (args) {
-                        if (args.isNotEmpty && args[0] == "ROLLED" && isQueueActive && !isAdvancing) {
-                          isAdvancing = true;
-                          Future.delayed(const Duration(milliseconds: 3500), () {
-                            _advanceQueue();
-                            isAdvancing = false;
-                          });
-                        }
+                child: Stack(
+                  children: [
+                    InAppWebView(
+                      initialUrlRequest: URLRequest(url: WebUri('https://www.google.com/search?q=dadu+online')),
+                      initialSettings: InAppWebViewSettings(
+                        useShouldOverrideUrlLoading: true,
+                        mediaPlaybackRequiresUserGesture: false,
+                        useHybridComposition: true, // Fix White Screen
+                        javaScriptEnabled: true,
+                      ),
+                      pullToRefreshController: _pullToRefreshController,
+                      onWebViewCreated: (controller) {
+                        _webViewController = controller;
+                        controller.addJavaScriptHandler(
+                          handlerName: 'FlutterBridge',
+                          callback: (args) {
+                            if (args.isNotEmpty && args[0] == "ROLLED" && isQueueActive && !isAdvancing) {
+                              isAdvancing = true;
+                              Future.delayed(const Duration(milliseconds: 3500), () { _advanceQueue(); isAdvancing = false; });
+                            }
+                          },
+                        );
                       },
-                    );
-                  },
-                  onLoadStop: (controller, url) async {
-                    _pullToRefreshController.endRefreshing();
-                    isAdvancing = false;
-                    await controller.evaluateJavascript(source: jsScript);
-                    if (isQueueActive && rollQueue.isNotEmpty) {
-                      _applyCurrentQueue();
-                    }
-                  },
+                      onLoadStart: (controller, url) => setState(() { _isWebViewLoading = true; _webViewError = ""; }),
+                      onLoadStop: (controller, url) async {
+                        setState(() => _isWebViewLoading = false);
+                        _pullToRefreshController.endRefreshing();
+                        isAdvancing = false;
+                        await controller.evaluateJavascript(source: jsScript);
+                        if (isQueueActive && rollQueue.isNotEmpty) _applyCurrentQueue();
+                      },
+                      onReceivedError: (controller, request, error) {
+                        setState(() { _isWebViewLoading = false; _webViewError = "Error: ${error.description}\nCek koneksi internet!"; });
+                      },
+                    ),
+                    if (_isWebViewLoading && _webViewError.isEmpty) const Center(child: CircularProgressIndicator(color: Colors.blue)),
+                    if (_webViewError.isNotEmpty)
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.wifi_off, color: Colors.grey, size: 60),
+                            const SizedBox(height: 16),
+                            Text(_webViewError, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
+                            const SizedBox(height: 16),
+                            ElevatedButton(onPressed: () => _webViewController?.reload(), child: const Text("Coba Lagi")),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],
@@ -394,47 +390,44 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     return Scaffold(
       backgroundColor: gBg,
       appBar: _currentTab == 0 ? _buildHomeAppBar() : _currentTab == 1 ? _buildSearchAppBar() : AppBar(backgroundColor: gBg, elevation: 0),
-      body: _currentTab == 0 
-          ? _buildHomeBody() 
-          : _currentTab == 1 
-              ? _buildSearchBody() 
-              : _buildPlaceholderBody(),
-      bottomNavigationBar: _buildBottomNav(),
-    );
-  }
-
-  // --- WIDGETS TAB 0: HOME ---
-  AppBar _buildHomeAppBar() {
-    return AppBar(
-      backgroundColor: gBg,
-      elevation: 0,
-      surfaceTintColor: Colors.transparent,
-      leading: IconButton(
-        icon: Icon(Icons.menu, color: gTextPrimary),
-        onPressed: () {},
-      ),
-      centerTitle: true,
-      title: Text.rich(
-        TextSpan(
-          children: [
-            TextSpan(text: 'G', style: TextStyle(color: const Color(0xFF4285F4), fontSize: 22, fontWeight: FontWeight.bold)),
-            TextSpan(text: 'o', style: TextStyle(color: const Color(0xFFEA4335), fontSize: 22, fontWeight: FontWeight.bold)),
-            TextSpan(text: 'o', style: TextStyle(color: const Color(0xFFFBBC05), fontSize: 22, fontWeight: FontWeight.bold)),
-            TextSpan(text: 'g', style: TextStyle(color: const Color(0xFF4285F4), fontSize: 22, fontWeight: FontWeight.bold)),
-            TextSpan(text: 'l', style: TextStyle(color: const Color(0xFF34A853), fontSize: 22, fontWeight: FontWeight.bold)),
-            TextSpan(text: 'e', style: TextStyle(color: const Color(0xFFEA4335), fontSize: 22, fontWeight: FontWeight.bold)),
+      body: _currentTab == 0 ? _buildHomeBody() : _currentTab == 1 ? _buildSearchBody() : Center(child: Text('Fitur ini belum tersedia', style: TextStyle(color: gTextSecondary))),
+      bottomNavigationBar: NavigationBarTheme(
+        data: NavigationBarThemeData(
+          backgroundColor: gBg,
+          indicatorColor: Colors.blue.withOpacity(0.2),
+          labelTextStyle: MaterialStateProperty.all(TextStyle(color: gTextPrimary, fontSize: 12)),
+          iconTheme: MaterialStateProperty.resolveWith((states) => IconThemeData(color: states.contains(MaterialState.selected) ? Colors.blue[200] : gTextSecondary)),
+        ),
+        child: NavigationBar(
+          selectedIndex: _currentTab,
+          onDestinationSelected: (index) => setState(() => _currentTab = index),
+          destinations: const [
+            NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Beranda'),
+            NavigationDestination(icon: Icon(Icons.search), selectedIcon: Icon(Icons.search), label: 'Telusuri'),
+            NavigationDestination(icon: Icon(Icons.bookmark_border), selectedIcon: Icon(Icons.bookmark), label: 'Disimpan'),
+            NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Setelan'),
           ],
         ),
       ),
+    );
+  }
+
+  AppBar _buildHomeAppBar() {
+    return AppBar(
+      backgroundColor: gBg, elevation: 0, surfaceTintColor: Colors.transparent,
+      leading: IconButton(icon: Icon(Icons.menu, color: gTextPrimary), onPressed: () {}),
+      centerTitle: true,
+      title: Text.rich(TextSpan(children: [
+        TextSpan(text: 'G', style: TextStyle(color: const Color(0xFF4285F4), fontSize: 22, fontWeight: FontWeight.bold)),
+        TextSpan(text: 'o', style: TextStyle(color: const Color(0xFFEA4335), fontSize: 22, fontWeight: FontWeight.bold)),
+        TextSpan(text: 'o', style: TextStyle(color: const Color(0xFFFBBC05), fontSize: 22, fontWeight: FontWeight.bold)),
+        TextSpan(text: 'g', style: TextStyle(color: const Color(0xFF4285F4), fontSize: 22, fontWeight: FontWeight.bold)),
+        TextSpan(text: 'l', style: TextStyle(color: const Color(0xFF34A853), fontSize: 22, fontWeight: FontWeight.bold)),
+        TextSpan(text: 'e', style: TextStyle(color: const Color(0xFFEA4335), fontSize: 22, fontWeight: FontWeight.bold)),
+      ])),
       actions: [
-        IconButton(
-          icon: Icon(Icons.refresh, color: gTextPrimary),
-          onPressed: _fetchLatestNews,
-        ),
-        const Padding(
-          padding: EdgeInsets.only(right: 16.0),
-          child: CircleAvatar(radius: 14, backgroundColor: Colors.blueGrey, child: Icon(Icons.person, size: 18)),
-        ),
+        IconButton(icon: Icon(Icons.refresh, color: gTextPrimary), onPressed: _fetchLatestNews),
+        const Padding(padding: EdgeInsets.only(right: 16.0), child: CircleAvatar(radius: 14, backgroundColor: Colors.blueGrey, child: Icon(Icons.person, size: 18))),
       ],
     );
   }
@@ -444,7 +437,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
       child: Column(
         children: [
           const SizedBox(height: 20),
-          // Search Bar Tiruan
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: GestureDetector(
@@ -452,95 +444,49 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
               child: Container(
                 height: 48,
                 decoration: BoxDecoration(color: gSurface, borderRadius: BorderRadius.circular(24)),
-                child: Row(
-                  children: [
-                    const SizedBox(width: 16),
-                    Icon(Icons.search, color: gTextSecondary),
-                    const SizedBox(width: 12),
-                    Text('Telusuri', style: TextStyle(color: gTextSecondary, fontSize: 16)),
-                    const Spacer(),
-                    Icon(Icons.mic, color: gTextPrimary),
-                    const SizedBox(width: 12),
-                    Icon(Icons.camera_alt_outlined, color: gTextPrimary),
-                    const SizedBox(width: 16),
-                  ],
-                ),
+                child: Row(children: [
+                  const SizedBox(width: 16), Icon(Icons.search, color: gTextSecondary), const SizedBox(width: 12),
+                  Text('Telusuri', style: TextStyle(color: gTextSecondary, fontSize: 16)),
+                  const Spacer(), Icon(Icons.mic, color: gTextPrimary), const SizedBox(width: 12),
+                  Icon(Icons.camera_alt_outlined, color: gTextPrimary), const SizedBox(width: 16),
+                ]),
               ),
             ),
           ),
           const SizedBox(height: 20),
-          // Shortcut Chips
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildShortcut(Icons.auto_awesome, 'Mode AI'),
-                _buildShortcut(Icons.graphic_eq, 'Voice'),
-                _buildShortcut(Icons.camera_alt_outlined, 'Lens'),
-              ],
-            ),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+              _buildShortcut(Icons.auto_awesome, 'Mode AI'),
+              _buildShortcut(Icons.graphic_eq, 'Voice'),
+              _buildShortcut(Icons.camera_alt_outlined, 'Lens'),
+            ]),
           ),
-          const SizedBox(height: 16),
-          Divider(color: Colors.grey[800], height: 1),
-          
-          // News Feed (Google Discover Style)
-          if (_isLoadingNews)
-            const Padding(
-              padding: EdgeInsets.all(32.0),
-              child: CircularProgressIndicator(color: Colors.blue),
-            )
-          else
-            ..._newsList.map((news) => _buildNewsCard(news)).toList(),
+          const SizedBox(height: 16), Divider(color: Colors.grey[800], height: 1),
+          if (_isLoadingNews) const Padding(padding: EdgeInsets.all(32.0), child: CircularProgressIndicator(color: Colors.blue))
+          else ..._newsList.map((news) => _buildNewsCard(news)).toList(),
         ],
       ),
     );
   }
 
-  // --- WIDGETS TAB 1: SEARCH / TRENDING ---
   AppBar _buildSearchAppBar() {
     return AppBar(
-      backgroundColor: gBg,
-      elevation: 0,
-      surfaceTintColor: Colors.transparent,
-      titleSpacing: 0,
+      backgroundColor: gBg, elevation: 0, surfaceTintColor: Colors.transparent, titleSpacing: 0,
       title: Container(
-        height: 48,
-        margin: const EdgeInsets.only(right: 16),
+        height: 48, margin: const EdgeInsets.only(right: 16),
         decoration: BoxDecoration(color: gSurface, borderRadius: BorderRadius.circular(24)),
         child: TextField(
-          controller: _searchController,
-          autofocus: true,
-          style: TextStyle(color: gTextPrimary, fontSize: 16),
+          controller: _searchController, autofocus: true, style: TextStyle(color: gTextPrimary, fontSize: 16),
           decoration: InputDecoration(
-            hintText: 'Tanya Google',
-            hintStyle: TextStyle(color: gTextSecondary),
-            border: InputBorder.none,
-            isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 14),
-            prefixIcon: Icon(Icons.search, color: gTextSecondary),
-            suffixIcon: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.mic, color: gTextPrimary),
-                const SizedBox(width: 8),
-                Icon(Icons.camera_alt_outlined, color: gTextPrimary),
-                const SizedBox(width: 8),
-              ],
-            ),
+            hintText: 'Tanya Google', hintStyle: TextStyle(color: gTextSecondary), border: InputBorder.none, isDense: true,
+            contentPadding: const EdgeInsets.symmetric(vertical: 14), prefixIcon: Icon(Icons.search, color: gTextSecondary),
+            suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.mic, color: gTextPrimary), const SizedBox(width: 8), Icon(Icons.camera_alt_outlined, color: gTextPrimary), const SizedBox(width: 8)]),
           ),
           onSubmitted: (val) => _performSearch(val),
         ),
       ),
-      actions: [
-        IconButton(
-          icon: Icon(Icons.close, color: gTextPrimary),
-          onPressed: () => setState(() {
-            _currentTab = 0;
-            _searchController.clear();
-          }),
-        )
-      ],
+      actions: [IconButton(icon: Icon(Icons.close, color: gTextPrimary), onPressed: () => setState(() { _currentTab = 0; _searchController.clear(); }))],
     );
   }
 
@@ -548,136 +494,53 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Text('Penelusuran trending', style: TextStyle(color: gTextSecondary, fontSize: 14)),
-        ),
-        ..._trendingList.map((item) => Column(
-          children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: gSurface, shape: BoxShape.circle),
-                child: Icon(Icons.trending_up, color: gTextSecondary, size: 20),
-              ),
-              title: Text(item['title']!, style: TextStyle(color: gTextPrimary, fontSize: 16)),
-              subtitle: item['desc']!.isNotEmpty ? Text(item['desc']!, style: TextStyle(color: gTextSecondary, fontSize: 12)) : null,
-              onTap: () => _performSearch(item['title']!),
-            ),
-            Divider(color: Colors.grey[800], height: 1),
-          ],
-        )),
+        Padding(padding: const EdgeInsets.symmetric(vertical: 16), child: Text('Penelusuran trending', style: TextStyle(color: gTextSecondary, fontSize: 14))),
+        ..._trendingList.map((item) => Column(children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: gSurface, shape: BoxShape.circle), child: Icon(Icons.trending_up, color: gTextSecondary, size: 20)),
+            title: Text(item['title']!, style: TextStyle(color: gTextPrimary, fontSize: 16)),
+            subtitle: item['desc']!.isNotEmpty ? Text(item['desc']!, style: TextStyle(color: gTextSecondary, fontSize: 12)) : null,
+            onTap: () => _performSearch(item['title']!),
+          ),
+          Divider(color: Colors.grey[800], height: 1),
+        ])),
       ],
     );
   }
 
-  // --- WIDGETS TAB 2 & 3 (DUMMY) ---
-  Widget _buildPlaceholderBody() {
-    return Center(
-      child: Text('Fitur ini belum tersedia', style: TextStyle(color: gTextSecondary)),
-    );
-  }
-
-  // --- WIDGETS UMUM ---
   Widget _buildShortcut(IconData icon, String label) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: gSurface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey[800]!),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: gTextPrimary, size: 18),
-          const SizedBox(width: 8),
-          Text(label, style: TextStyle(color: gTextPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
-        ],
-      ),
+      decoration: BoxDecoration(color: gSurface, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.grey[800]!)),
+      child: Row(children: [Icon(icon, color: gTextPrimary, size: 18), const SizedBox(width: 8), Text(label, style: TextStyle(color: gTextPrimary, fontSize: 13, fontWeight: FontWeight.w500))]),
     );
   }
 
   Widget _buildNewsCard(_NewsItem news) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-            child: news.image.isNotEmpty
-                ? Image.network(
-                    news.image,
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      height: 200, color: Colors.grey[800], child: Icon(Icons.image, size: 50, color: Colors.grey),
-                    ),
-                  )
-                : Container(height: 200, width: double.infinity, color: Colors.grey[800], child: Icon(Icons.image, size: 50, color: Colors.grey)),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  news.title,
-                  style: TextStyle(color: gTextPrimary, fontSize: 16, height: 1.4),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Icon(Icons.public, color: gTextSecondary, size: 14),
-                    const SizedBox(width: 6),
-                    Text('${news.source} · ${news.time}', style: TextStyle(color: gTextSecondary, fontSize: 12)),
-                    const Spacer(),
-                    Icon(Icons.share_outlined, color: gTextSecondary, size: 20),
-                    const SizedBox(width: 12),
-                    Icon(Icons.more_vert, color: gTextSecondary, size: 20),
-                  ],
-                )
-              ],
-            ),
-          )
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBottomNav() {
-    return NavigationBarTheme(
-      data: NavigationBarThemeData(
-        backgroundColor: gBg,
-        indicatorColor: Colors.blue.withOpacity(0.2),
-        labelTextStyle: MaterialStateProperty.all(TextStyle(color: gTextPrimary, fontSize: 12)),
-        iconTheme: MaterialStateProperty.resolveWith((states) {
-          if (states.contains(MaterialState.selected)) {
-            return IconThemeData(color: Colors.blue[200]);
-          }
-          return IconThemeData(color: gTextSecondary);
-        }),
-      ),
-      child: NavigationBar(
-        selectedIndex: _currentTab,
-        onDestinationSelected: (index) {
-          setState(() => _currentTab = index);
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Beranda'),
-          NavigationDestination(icon: Icon(Icons.search), selectedIcon: Icon(Icons.search), label: 'Telusuri'),
-          NavigationDestination(icon: Icon(Icons.bookmark_border), selectedIcon: Icon(Icons.bookmark), label: 'Disimpan'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Setelan'),
-        ],
-      ),
+      decoration: BoxDecoration(color: const Color(0xFF1E1E1E), borderRadius: BorderRadius.circular(16)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          child: news.image.isNotEmpty
+              ? Image.network(news.image, height: 200, width: double.infinity, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => Container(height: 200, color: Colors.grey[800], child: Icon(Icons.image, size: 50, color: Colors.grey)))
+              : Container(height: 200, width: double.infinity, color: Colors.grey[800], child: Icon(Icons.image, size: 50, color: Colors.grey)),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(news.title, style: TextStyle(color: gTextPrimary, fontSize: 16, height: 1.4), maxLines: 3, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 12),
+            Row(children: [
+              Icon(Icons.public, color: gTextSecondary, size: 14), const SizedBox(width: 6),
+              Text('${news.source} · ${news.time}', style: TextStyle(color: gTextSecondary, fontSize: 12)),
+              const Spacer(), Icon(Icons.share_outlined, color: gTextSecondary, size: 20), const SizedBox(width: 12), Icon(Icons.more_vert, color: gTextSecondary, size: 20),
+            ]),
+          ]),
+        )
+      ]),
     );
   }
 }
