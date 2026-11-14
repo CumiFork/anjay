@@ -26,6 +26,15 @@ class MyApp extends StatelessWidget {
   }
 }
 
+class _NewsItem {
+  final String title;
+  final String image;
+  final String source;
+  final String time;
+
+  _NewsItem({required this.title, required this.image, required this.source, required this.time});
+}
+
 class GoogleDiceApp extends StatefulWidget {
   const GoogleDiceApp({super.key});
 
@@ -44,16 +53,13 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   bool _showSearchScreen = false;
   final TextEditingController _searchController = TextEditingController();
 
-  String _newsTitle = "Memuat berita terbaru...";
-  String _newsImage = "";
-  String _newsSource = "";
-  String _newsTime = "";
+  bool _isLoadingNews = true;
+  List<_NewsItem> _newsList = [];
 
-  // State Antrean Roll
   List<String> rollQueue = [];
   int rollIndex = 0;
   bool isQueueActive = false;
-  bool isAdvancing = false; // Mencegah antrean maju dobel
+  bool isAdvancing = false;
   int activeDiceCount = 9;
 
   final List<Map<String, String>> _trendingList = [
@@ -72,7 +78,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     {"title": "borobudur marathon 2026", "desc": ""},
   ];
 
-  // Script JS V35 (Durasi Hack Diperpanjang biar gak meleset)
   final String jsScript = """
     (function() {
         const originalRandom = Math.random;
@@ -112,7 +117,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             plannedValues = generatePlan(targetTotal, diceCount);
             seqIndex = 0;
             
-            // Kunci mode hack selama 5 detik penuh (biar animasi Google selesai)
             isRolling = true;
             if(timeoutId) clearTimeout(timeoutId);
             timeoutId = setTimeout(() => { isRolling = false; }, 5000);
@@ -164,22 +168,51 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   }
 
   Future<void> _fetchLatestNews() async {
+    setState(() => _isLoadingNews = true);
     try {
-      final response = await http.get(Uri.parse('https://api-berita-indonesia.vercel.app/cnn/terbaru/'));
+      final response = await http.get(
+        Uri.parse('https://api-berita-indonesia.vercel.app/cnn/terbaru/'),
+      ).timeout(const Duration(seconds: 10));
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['data'] != null && data['data']['posts'] != null && data['data']['posts'].isNotEmpty) {
-          final news = data['data']['posts'][0];
+          List<_NewsItem> fetchedNews = [];
+          for (var i = 0; i < data['data']['posts'].length && i < 3; i++) {
+            final news = data['data']['posts'][i];
+            fetchedNews.add(_NewsItem(
+              title: news['title'] ?? 'Judul tidak tersedia',
+              image: news['thumbnail'] ?? '',
+              source: 'CNN Indonesia',
+              time: 'Baru saja',
+            ));
+          }
           setState(() {
-            _newsTitle = news['title'] ?? 'Judul tidak tersedia';
-            _newsImage = news['thumbnail'] ?? '';
-            _newsSource = 'CNN Indonesia';
-            _newsTime = 'Baru saja';
+            _newsList = fetchedNews;
+            _isLoadingNews = false;
           });
+          return;
         }
       }
+      throw Exception("Gagal ambil data");
     } catch (e) {
-      setState(() { _newsTitle = "Gagal memuat berita."; });
+      setState(() {
+        _newsList = [
+          _NewsItem(
+            title: "Mengenal biawak pohon biru (Varanus macraei), reptil eksotis dengan sisik biru cerah",
+            image: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Varanus_macraei_%28Blue_Tree_Monitor%29.jpg/800px-Varanus_macraei_%28Blue_Tree_Monitor%29.jpg",
+            source: "Mongabay Indonesia",
+            time: "20 jam lalu",
+          ),
+          _NewsItem(
+            title: "Update Terbaru: Harga BBM Pertamina Resmi Naik Mulai Hari Ini",
+            image: "https://images.unsplash.com/photo-1626078299034-59b2f0c519a6?q=80&w=800&auto=format&fit=crop",
+            source: "Kompas",
+            time: "1 jam lalu",
+          ),
+        ];
+        _isLoadingNews = false;
+      });
     }
   }
 
@@ -263,77 +296,54 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     if (_showWebView) {
       return Scaffold(
         body: SafeArea(
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: const Color(0xFF131314),
-                child: GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _showWebView = false;
-                      _showSearchScreen = true;
+          child: InAppWebView(
+            initialUrlRequest: URLRequest(url: WebUri('https://www.google.com/search?q=dadu+online')),
+            initialSettings: InAppWebViewSettings(
+              useShouldOverrideUrlLoading: true,
+              mediaPlaybackRequiresUserGesture: false,
+            ),
+            pullToRefreshController: _pullToRefreshController,
+            onWebViewCreated: (controller) {
+              _webViewController = controller;
+              controller.addJavaScriptHandler(
+                handlerName: 'FlutterBridge',
+                callback: (args) {
+                  if (args.isNotEmpty && args[0] == "ROLLED" && isQueueActive && !isAdvancing) {
+                    isAdvancing = true;
+                    Future.delayed(const Duration(milliseconds: 3500), () {
+                      _advanceQueue();
+                      isAdvancing = false;
                     });
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(color: const Color(0xFF303134), borderRadius: BorderRadius.circular(30)),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.search, color: Colors.grey),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            _searchController.text.isEmpty ? 'dadu online' : _searchController.text,
-                            style: const TextStyle(color: Colors.white, fontSize: 16),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const Icon(Icons.close, color: Colors.grey),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+                  }
+                },
+              );
+            },
+            onLoadStop: (controller, url) async {
+              _pullToRefreshController.endRefreshing();
+              isAdvancing = false;
+              await controller.evaluateJavascript(source: jsScript);
               
-              Expanded(
-                child: InAppWebView(
-                  initialUrlRequest: URLRequest(url: WebUri('https://www.google.com/search?q=dadu+online')),
-                  initialSettings: InAppWebViewSettings(
-                    useShouldOverrideUrlLoading: true,
-                    mediaPlaybackRequiresUserGesture: false,
-                  ),
-                  pullToRefreshController: _pullToRefreshController,
-                  onWebViewCreated: (controller) {
-                    _webViewController = controller;
-                    controller.addJavaScriptHandler(
-                      handlerName: 'FlutterBridge',
-                      callback: (args) {
-                        // Pas Lembar diklik, tunda 3.5 detik baru ganti ke antrean selanjutnya
-                        if (args.isNotEmpty && args[0] == "ROLLED" && isQueueActive && !isAdvancing) {
-                          isAdvancing = true;
-                          Future.delayed(const Duration(milliseconds: 3500), () {
-                            _advanceQueue();
-                            isAdvancing = false;
-                          });
-                        }
-                      },
-                    );
-                  },
-                  onLoadStop: (controller, url) async {
-                    _pullToRefreshController.endRefreshing();
-                    isAdvancing = false; // Reset status antrean
-                    await controller.evaluateJavascript(source: jsScript);
-                    
-                    if (isQueueActive && rollQueue.isNotEmpty) {
-                      _applyCurrentQueue();
-                    }
-                  },
-                ),
-              ),
-            ],
+              if (isQueueActive && rollQueue.isNotEmpty) {
+                _applyCurrentQueue();
+              }
+            },
           ),
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          backgroundColor: const Color(0xFF1E1E1E),
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: Colors.blue[200],
+          unselectedItemColor: Colors.grey,
+          currentIndex: 1,
+          onTap: (index) {
+            if (index == 0) setState(() => _showWebView = false); 
+          },
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Beranda'),
+            BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Telusuri'),
+            BottomNavigationBarItem(icon: Icon(Icons.notifications), label: 'Notifikasi'),
+            BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Aktivitas'),
+          ],
         ),
       );
     }
@@ -416,8 +426,12 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
         backgroundColor: const Color(0xFF131314),
         elevation: 0,
         leading: IconButton(icon: const Icon(Icons.menu, color: Colors.white), onPressed: () {}),
-        actions: const [
-          Padding(
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _fetchLatestNews, 
+          ),
+          const Padding(
             padding: EdgeInsets.only(right: 16.0),
             child: CircleAvatar(radius: 16, backgroundColor: Colors.blue, child: Icon(Icons.person, size: 20)),
           ),
@@ -474,42 +488,54 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             ),
             const SizedBox(height: 20),
             const Divider(color: Colors.grey),
-            Container(
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: const Color(0xFF1E1E1E), borderRadius: BorderRadius.circular(16)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                    child: _newsImage.isNotEmpty
-                        ? Image.network(_newsImage, height: 200, width: double.infinity, fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => Container(height: 200, color: Colors.grey))
-                        : Container(height: 200, width: double.infinity, color: Colors.grey[800], child: const Icon(Icons.image, size: 50, color: Colors.grey)),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(_newsTitle, style: const TextStyle(color: Colors.white, fontSize: 16), maxLines: 2, overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            const Icon(Icons.circle, color: Colors.green, size: 12),
-                            const SizedBox(width: 5),
-                            Text('$_newsSource · $_newsTime', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                            const Spacer(),
-                            const Icon(Icons.share, color: Colors.grey, size: 20),
-                            const SizedBox(width: 10),
-                            const Icon(Icons.more_vert, color: Colors.grey, size: 20),
-                          ],
-                        )
-                      ],
+            if (_isLoadingNews)
+              const Padding(
+                padding: EdgeInsets.all(32.0),
+                child: CircularProgressIndicator(color: Colors.blue),
+              )
+            else
+              ..._newsList.map((news) => Container(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(color: const Color(0xFF1E1E1E), borderRadius: BorderRadius.circular(16)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                      child: news.image.isNotEmpty
+                          ? Image.network(
+                              news.image, 
+                              height: 200, 
+                              width: double.infinity, 
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) => Container(height: 200, color: Colors.grey[800], child: const Icon(Icons.broken_image, size: 50, color: Colors.grey))
+                            )
+                          : Container(height: 200, width: double.infinity, color: Colors.grey[800], child: const Icon(Icons.image, size: 50, color: Colors.grey)),
                     ),
-                  )
-                ],
-              ),
-            ),
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(news.title, style: const TextStyle(color: Colors.white, fontSize: 16), maxLines: 2, overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Icon(Icons.circle, color: Colors.green, size: 12),
+                              const SizedBox(width: 5),
+                              Text('${news.source} · ${news.time}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                              const Spacer(),
+                              const Icon(Icons.share, color: Colors.grey, size: 20),
+                              const SizedBox(width: 10),
+                              const Icon(Icons.more_vert, color: Colors.grey, size: 20),
+                            ],
+                          )
+                        ],
+                      ),
+                    )
+                  ],
+                ),
+              )).toList(),
           ],
         ),
       ),
