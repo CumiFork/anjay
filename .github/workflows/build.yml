@@ -40,24 +40,27 @@ jobs:
         rm -rf android
         flutter create . --platforms=android
 
-    - name: Patch AndroidManifest (Name, Permissions & Launch Mode)
+    - name: Patch AndroidManifest (Internet, Cleartext, Anti Refresh)
       run: |
         python3 -c "
+        import re
         path = 'android/app/src/main/AndroidManifest.xml'
         with open(path, 'r') as f:
             content = f.read()
         
-        # Ubah nama jadi Google
         content = content.replace('android:label=\"dadu_google\"', 'android:label=\"Google\"')
         
-        # Tambah izin internet & Cleartext (biar gambar berita muncul)
         if 'android.permission.INTERNET' not in content:
-            content = content.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\" />\n    <application android:usesCleartextTraffic=\"true\"', 1)
-            
-        # Anti Refresh
+            match = re.search(r'(<manifest[^>]*>)', content)
+            if match:
+                content = content.replace(match.group(1), match.group(1) + '\n    <uses-permission android:name=\"android.permission.INTERNET\" />\n    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n', 1)
+
+        if 'android:usesCleartextTraffic' not in content:
+            content = content.replace('<application', '<application android:usesCleartextTraffic=\"true\"', 1)
+
         if 'android:configChanges' not in content:
             content = content.replace('<activity', '<activity android:configChanges=\"orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode\" android:launchMode=\"singleTop\"', 1)
-            
+        
         with open(path, 'w') as f:
             f.write(content)
         "
