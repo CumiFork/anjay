@@ -42,6 +42,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
   // State UI
   bool _showWebView = false;
   bool _showSearchScreen = false;
+  final TextEditingController _searchController = TextEditingController();
 
   // State Berita
   String _newsTitle = "Memuat berita terbaru...";
@@ -108,9 +109,9 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
             }
             plannedValues = generatePlan(targetTotal, diceCount);
             seqIndex = 0;
+            console.log("Dadu diset: " + mode + " (" + targetTotal + ")");
         };
 
-        // Deteksi klik tombol Lembar buat maju antrean
         document.addEventListener('click', function(e) {
             let btn = e.target.closest('button') || e.target.parentElement;
             if(btn && btn.innerText && (btn.innerText.includes('Lembar') || btn.innerText.includes('Roll'))) {
@@ -132,7 +133,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                 return originalRandom();
             };
         }
-        setTimeout(injectMathHook, 2500);
+        setTimeout(injectMathHook, 2000);
     })();
   """;
 
@@ -148,7 +149,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
         'FlutterBridge',
         onMessageReceived: (JavaScriptMessage message) {
           if (message.message == "ROLLED" && isQueueActive) {
-             _advanceQueue(); // Majuin antrean pas lempar dadu
+             _advanceQueue(); 
           }
         },
       )
@@ -156,11 +157,12 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
         NavigationDelegate(
           onPageFinished: (String url) {
             if (url.contains("google.com/search")) {
-              _controller.runJavaScript(jsScript);
-              // Kalau habis refresh, apply ulang antrean yang lagi jalan
-              if (isQueueActive && rollQueue.isNotEmpty) {
-                 _applyCurrentQueue();
-              }
+              // Inject script, LALU tunggu (then) baru apply antrean
+              _controller.runJavaScript(jsScript).then((_) {
+                if (isQueueActive && rollQueue.isNotEmpty) {
+                   _applyCurrentQueue();
+                }
+              });
             }
           },
         ),
@@ -171,7 +173,16 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
     _fetchLatestNews(); 
   }
 
-  // Narik Berita Terbaru
+  void _performSearch(String query) {
+    if (query.isEmpty) return;
+    _searchController.text = query;
+    _controller.loadRequest(Uri.parse('https://www.google.com/search?q=${Uri.encodeComponent(query)}'));
+    setState(() {
+      _showSearchScreen = false;
+      _showWebView = true;
+    });
+  }
+
   Future<void> _fetchLatestNews() async {
     try {
       final response = await http.get(Uri.parse('https://api-berita-indonesia.vercel.app/cnn/terbaru/'));
@@ -192,7 +203,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
     }
   }
 
-  // --- LOGIKA TELEGRAM & ANTREAN ---
   void _applyCurrentQueue() {
     if (rollQueue.isEmpty) return;
     String mode = rollQueue[rollIndex];
@@ -235,6 +245,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                   _sendReply(chatId, "✅ Mode ${modeStr.toUpperCase()} aktif ($activeDiceCount Dadu)");
                 } 
                 else if (cmd == '/setroll' && args.length > 1) {
+                  activeDiceCount = 9;
                   rollQueue.clear();
                   for (int i = 1; i < args.length; i++) {
                     if (args[i] == 'kecil' || args[i] == 'besar') {
@@ -264,13 +275,12 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _pollingTimer?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
-  // --- UI BUILDER ---
   @override
   Widget build(BuildContext context) {
-    // 1. Layar WebView
     if (_showWebView) {
       return Scaffold(
         body: SafeArea(
@@ -290,11 +300,18 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(color: const Color(0xFF303134), borderRadius: BorderRadius.circular(30)),
                     child: Row(
-                      children: const [
-                        Icon(Icons.search, color: Colors.grey),
-                        SizedBox(width: 10),
-                        Expanded(child: Text('dadu online', style: TextStyle(color: Colors.white, fontSize: 16))),
-                        Icon(Icons.close, color: Colors.grey),
+                      children: [
+                        const Icon(Icons.search, color: Colors.grey),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            _searchController.text.isEmpty ? 'dadu online' : _searchController.text,
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Icon(Icons.close, color: Colors.grey),
                       ],
                     ),
                   ),
@@ -312,7 +329,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
       );
     }
 
-    // 2. Layar Trending
     if (_showSearchScreen) {
       return Scaffold(
         backgroundColor: const Color(0xFF1F1F1F),
@@ -325,16 +341,37 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
             padding: const EdgeInsets.symmetric(horizontal: 16),
             decoration: BoxDecoration(color: const Color(0xFF2D2E30), borderRadius: BorderRadius.circular(25)),
             child: Row(
-              children: const [
-                Expanded(child: Text('Tanya Google', style: TextStyle(color: Colors.grey, fontSize: 16))),
-                Icon(Icons.mic, color: Colors.white),
-                SizedBox(width: 10),
-                Icon(Icons.camera_alt, color: Colors.white),
+              children: [
+                const Icon(Icons.search, color: Colors.grey),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    autofocus: true, 
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: 'Tanya Google',
+                      hintStyle: TextStyle(color: Colors.grey),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                    onSubmitted: (value) => _performSearch(value), 
+                  ),
+                ),
+                const Icon(Icons.mic, color: Colors.white),
+                const SizedBox(width: 10),
+                const Icon(Icons.camera_alt, color: Colors.white),
               ],
             ),
           ),
           actions: [
-            IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => setState(() => _showSearchScreen = false))
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white), 
+              onPressed: () => setState(() {
+                _showSearchScreen = false;
+                _searchController.clear();
+              })
+            )
           ],
         ),
         body: ListView(
@@ -355,12 +392,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                   ),
                   title: Text(item['title']!, style: const TextStyle(color: Colors.white, fontSize: 16)),
                   subtitle: item['desc']!.isNotEmpty ? Text(item['desc']!, style: const TextStyle(color: Colors.grey, fontSize: 12)) : null,
-                  onTap: () {
-                    setState(() {
-                      _showSearchScreen = false;
-                      _showWebView = true;
-                    });
-                  },
+                  onTap: () => _performSearch(item['title']!), 
                 ),
                 const Divider(color: Color(0xFF2D2E30), height: 1),
               ],
@@ -370,7 +402,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
       );
     }
 
-    // 3. Layar Beranda (Berita)
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF131314),
