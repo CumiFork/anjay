@@ -37,6 +37,11 @@ jobs:
         rm -rf android
         flutter create . --platforms=android
 
+    # --- TAMBAHAN BARU: NYUNTIK IZIN INTERNET ---
+    - name: Add Internet Permission
+      run: |
+        sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
+
     - name: Build APK
       run: flutter build apk --release
 
