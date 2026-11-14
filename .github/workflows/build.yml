@@ -40,17 +40,17 @@ jobs:
     # --- PATCH ANDROID MANIFEST (Ubah Nama & Izin) ---
     - name: Patch AndroidManifest (Name & Permissions)
       run: |
-        # Ubah nama aplikasi jadi Google
         sed -i 's/android:label="dadu_google"/android:label="Google"/g' android/app/src/main/AndroidManifest.xml
-        # Nambahin izin internet
         sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
-        # Nambahin configChanges biar Activity gak di-restart (Anti-Refresh)
         sed -i 's/android:name=".MainActivity"/android:name=".MainActivity"\n            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"\n            android:launchMode="singleTop"/' android/app/src/main/AndroidManifest.xml
 
-    # --- GANTI LOGO JADI GOOGLE ---
+    # --- GANTI LOGO JADI GOOGLE (LINK FIX) ---
     - name: Change App Icon to Google
       run: |
-        wget -q "https://raw.githubusercontent.com/devicons/devicon/master/icons/google/google-original.png" -O google_icon.png
+        # Pake link avatar Google di GitHub + user-agent biar anti blokir
+        wget -q --user-agent="Mozilla/5.0" "https://github.com/Google.png" -O google_icon.png
+        
+        # Timpa logo bawaan
         cp google_icon.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
         cp google_icon.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
         cp google_icon.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
