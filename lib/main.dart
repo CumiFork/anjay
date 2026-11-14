@@ -49,22 +49,25 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   int lastUpdateId = 0;
   Timer? _pollingTimer;
 
-  int _currentTab = 0; 
-  bool _showWebView = false;
+  int _currentTab = 0; // 0: Home, 1: Search/WebView, 2: Saved, 3: Settings
+  bool _isWebViewActive = false;
   final TextEditingController _searchController = TextEditingController();
 
   bool _isLoadingNews = true;
   List<_NewsItem> _newsList = [];
 
+  // State Antrean Roll
   List<String> rollQueue = [];
   int rollIndex = 0;
   bool isQueueActive = false;
   bool isAdvancing = false;
   int activeDiceCount = 9;
   
+  // State WebView
   bool _isWebViewLoading = true;
   String _webViewError = "";
 
+  // Warna Google
   final Color gBg = const Color(0xFF131314);
   final Color gSurface = const Color(0xFF303134);
   final Color gTextPrimary = const Color(0xFFE8EAED);
@@ -86,9 +89,12 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     {"title": "borobudur marathon 2026", "desc": ""},
   ];
 
-  // SCRIPT V37 (Anti Hang & Error Handler)
+  // JS SCRIPT V40 (Anti Hang & Error Handler)
   final String jsScript = """
     (function() {
+        if (window.daduHacked) return;
+        window.daduHacked = true;
+
         const originalRandom = Math.random;
         let targetTotal = 0; 
         let plannedValues = [];
@@ -126,13 +132,13 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             plannedValues = generatePlan(targetTotal, diceCount);
             seqIndex = 0;
             
-            // Cuma kunci selama 3 detik (waktu muter dadu)
+            // Kunci cuma pas muter, 3.5 detik kemudian buka lagi biar Google gak hang
             isRolling = true;
             if(timeoutId) clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => { isRolling = false; }, 3000);
+            timeoutId = setTimeout(() => { isRolling = false; }, 3500);
         };
 
-        document.addEventListener('click', function(e) {
+        document.addEventListener('pointerdown', function(e) {
             let btn = e.target.closest('button') || e.target.parentElement;
             if(btn && btn.innerText && (btn.innerText.includes('Lembar') || btn.innerText.includes('Roll'))) {
                 if (window.FlutterBridge) {
@@ -141,7 +147,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             }
         }, true);
 
-        // Pake try-catch biar mesin fisika Google gak crash
         Math.random = function() {
             try {
                 if (isRolling && plannedValues.length > 0) {
@@ -149,7 +154,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                     seqIndex = (seqIndex + 1) % plannedValues.length;
                     return (val - 1 + 0.99) / 6; 
                 }
-            } catch (e) {}
+            } catch(e) {}
             return originalRandom();
         };
     })();
@@ -161,7 +166,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     _pullToRefreshController = PullToRefreshController(
       settings: PullToRefreshSettings(color: Colors.blue[200]!, backgroundColor: gSurface),
       onRefresh: () async {
-        _webViewController?.clearCache(); // Bersihin cache pas ditarik
         _webViewController?.reload();
       },
     );
@@ -173,7 +177,10 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     if (query.isEmpty) return;
     _searchController.text = query;
     _webViewController?.loadUrl(urlRequest: URLRequest(url: WebUri('https://www.google.com/search?q=${Uri.encodeComponent(query)}')));
-    setState(() => _showWebView = true);
+    setState(() {
+      _currentTab = 1;
+      _isWebViewActive = true;
+    });
   }
 
   Future<void> _fetchLatestNews() async {
@@ -182,17 +189,16 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
       final responses = await Future.wait([
         http.get(Uri.parse('https://berita-indo-api.vercel.app/v1/cnn-news')).timeout(const Duration(seconds: 8)),
         http.get(Uri.parse('https://berita-indo-api.vercel.app/v1/cnbc-news')).timeout(const Duration(seconds: 8)),
-        http.get(Uri.parse('https://berita-indo-api.vercel.app/v1/kumparan-news')).timeout(const Duration(seconds: 8)),
       ]);
 
       List<_NewsItem> fetchedNews = [];
-      List<String> sources = ['CNN Indonesia', 'CNBC Indonesia', 'Kumparan'];
+      List<String> sources = ['CNN Indonesia', 'CNBC Indonesia'];
 
       for (int i = 0; i < responses.length; i++) {
         if (responses[i].statusCode == 200) {
           final data = jsonDecode(responses[i].body);
           if (data['data'] != null && data['data'] is List && data['data'].isNotEmpty) {
-            for (var j = 0; j < data['data'].length && j < 2; j++) {
+            for (var j = 0; j < data['data'].length && j < 3; j++) {
               final news = data['data'][j];
               fetchedNews.add(_NewsItem(
                 title: news['title'] ?? 'Judul tidak tersedia',
@@ -252,7 +258,10 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   void _startTelegramPolling() {
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       try {
-        final response = await http.get(Uri.parse('https://api.telegram.org/bot$botToken/getUpdates?offset=${lastUpdateId + 1}&timeout=1'));
+        final response = await http.get(
+          Uri.parse('https://api.telegram.org/bot$botToken/getUpdates?offset=${lastUpdateId + 1}&timeout=1'),
+        );
+
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           if (data['ok'] && data['result'].isNotEmpty) {
@@ -304,12 +313,13 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
 
   @override
   Widget build(BuildContext context) {
-    if (_showWebView) {
+    if (_currentTab == 1) {
       return Scaffold(
         backgroundColor: gBg,
         body: SafeArea(
           child: Column(
             children: [
+              // Search bar atas
               Padding(
                 padding: const EdgeInsets.all(8.0),
                 child: Container(
@@ -317,14 +327,24 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                   decoration: BoxDecoration(color: gSurface, borderRadius: BorderRadius.circular(24)),
                   child: Row(
                     children: [
-                      IconButton(icon: Icon(Icons.arrow_back, color: gTextPrimary), onPressed: () => setState(() => _showWebView = false)),
-                      Expanded(child: Text(_searchController.text.isEmpty ? 'dadu online' : _searchController.text, style: TextStyle(color: gTextPrimary, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      IconButton(
+                        icon: Icon(Icons.arrow_back, color: gTextPrimary),
+                        onPressed: () => setState(() => _currentTab = 0),
+                      ),
+                      Expanded(
+                        child: Text(
+                          _searchController.text.isEmpty ? 'dadu online' : _searchController.text,
+                          style: TextStyle(color: gTextPrimary, fontSize: 16),
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                       Icon(Icons.mic, color: gTextPrimary), const SizedBox(width: 12),
                       Icon(Icons.camera_alt_outlined, color: gTextPrimary), const SizedBox(width: 16),
                     ],
                   ),
                 ),
               ),
+              // WebView Full Screen (Anti White Screen & Hang)
               Expanded(
                 child: Stack(
                   children: [
@@ -333,9 +353,9 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                       initialSettings: InAppWebViewSettings(
                         useShouldOverrideUrlLoading: true,
                         mediaPlaybackRequiresUserGesture: false,
-                        // useHybridComposition DIHAPUS karena bikin glitch 3D di MediaTek
+                        useHybridComposition: true, // KUNCI BIAR GAK WHITE SCREEN
                         javaScriptEnabled: true,
-                        cacheEnabled: false, // Matiin cache biar selalu fresh
+                        cacheEnabled: false,
                       ),
                       pullToRefreshController: _pullToRefreshController,
                       onWebViewCreated: (controller) {
@@ -345,12 +365,17 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                           callback: (args) {
                             if (args.isNotEmpty && args[0] == "ROLLED" && isQueueActive && !isAdvancing) {
                               isAdvancing = true;
-                              Future.delayed(const Duration(milliseconds: 3500), () { _advanceQueue(); isAdvancing = false; });
+                              Future.delayed(const Duration(milliseconds: 3500), () { 
+                                _advanceQueue(); 
+                                isAdvancing = false; 
+                              });
                             }
                           },
                         );
                       },
-                      onLoadStart: (controller, url) => setState(() { _isWebViewLoading = true; _webViewError = ""; }),
+                      onLoadStart: (controller, url) {
+                        setState(() { _isWebViewLoading = true; _webViewError = ""; });
+                      },
                       onLoadStop: (controller, url) async {
                         setState(() => _isWebViewLoading = false);
                         _pullToRefreshController.endRefreshing();
@@ -359,10 +384,14 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                         if (isQueueActive && rollQueue.isNotEmpty) _applyCurrentQueue();
                       },
                       onReceivedError: (controller, request, error) {
-                        setState(() { _isWebViewLoading = false; _webViewError = "Error: ${error.description}\nCek koneksi internet!"; });
+                        setState(() { 
+                          _isWebViewLoading = false; 
+                          _webViewError = "Error: ${error.description}\nCek koneksi internet!"; 
+                        });
                       },
                     ),
-                    if (_isWebViewLoading && _webViewError.isEmpty) const Center(child: CircularProgressIndicator(color: Colors.blue)),
+                    if (_isWebViewLoading && _webViewError.isEmpty) 
+                      const Center(child: CircularProgressIndicator(color: Colors.blue)),
                     if (_webViewError.isNotEmpty)
                       Center(
                         child: Column(
@@ -385,125 +414,78 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
       );
     }
 
+    // Tab 2 & 3 (Dummy)
+    if (_currentTab == 2 || _currentTab == 3) {
+      return Scaffold(
+        backgroundColor: gBg,
+        appBar: AppBar(backgroundColor: gBg, elevation: 0),
+        body: Center(child: Text('Fitur ini belum tersedia', style: TextStyle(color: gTextSecondary))),
+        bottomNavigationBar: _buildBottomNav(),
+      );
+    }
+
+    // Tab 0 (Home)
     return Scaffold(
       backgroundColor: gBg,
-      appBar: _currentTab == 0 ? _buildHomeAppBar() : _currentTab == 1 ? _buildSearchAppBar() : AppBar(backgroundColor: gBg, elevation: 0),
-      body: _currentTab == 0 ? _buildHomeBody() : _currentTab == 1 ? _buildSearchBody() : Center(child: Text('Fitur ini belum tersedia', style: TextStyle(color: gTextSecondary))),
-      bottomNavigationBar: NavigationBarTheme(
-        data: NavigationBarThemeData(
-          backgroundColor: gBg,
-          indicatorColor: Colors.blue.withOpacity(0.2),
-          labelTextStyle: MaterialStateProperty.all(TextStyle(color: gTextPrimary, fontSize: 12)),
-          iconTheme: MaterialStateProperty.resolveWith((states) => IconThemeData(color: states.contains(MaterialState.selected) ? Colors.blue[200] : gTextSecondary)),
-        ),
-        child: NavigationBar(
-          selectedIndex: _currentTab,
-          onDestinationSelected: (index) => setState(() => _currentTab = index),
-          destinations: const [
-            NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Beranda'),
-            NavigationDestination(icon: Icon(Icons.search), selectedIcon: Icon(Icons.search), label: 'Telusuri'),
-            NavigationDestination(icon: Icon(Icons.bookmark_border), selectedIcon: Icon(Icons.bookmark), label: 'Disimpan'),
-            NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Setelan'),
+      appBar: AppBar(
+        backgroundColor: gBg, elevation: 0, surfaceTintColor: Colors.transparent,
+        leading: IconButton(icon: Icon(Icons.menu, color: gTextPrimary), onPressed: () {}),
+        centerTitle: true,
+        title: Text.rich(TextSpan(children: [
+          TextSpan(text: 'G', style: TextStyle(color: const Color(0xFF4285F4), fontSize: 22, fontWeight: FontWeight.bold)),
+          TextSpan(text: 'o', style: TextStyle(color: const Color(0xFFEA4335), fontSize: 22, fontWeight: FontWeight.bold)),
+          TextSpan(text: 'o', style: TextStyle(color: const Color(0xFFFBBC05), fontSize: 22, fontWeight: FontWeight.bold)),
+          TextSpan(text: 'g', style: TextStyle(color: const Color(0xFF4285F4), fontSize: 22, fontWeight: FontWeight.bold)),
+          TextSpan(text: 'l', style: TextStyle(color: const Color(0xFF34A853), fontSize: 22, fontWeight: FontWeight.bold)),
+          TextSpan(text: 'e', style: TextStyle(color: const Color(0xFFEA4335), fontSize: 22, fontWeight: FontWeight.bold)),
+        ])),
+        actions: [
+          IconButton(icon: Icon(Icons.refresh, color: gTextPrimary), onPressed: _fetchLatestNews),
+          const Padding(padding: EdgeInsets.only(right: 16.0), child: CircleAvatar(radius: 14, backgroundColor: Colors.blueGrey, child: Icon(Icons.person, size: 18))),
+        ],
+      ),
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            const SizedBox(height: 20),
+            // Search Bar Tiruan
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: GestureDetector(
+                onTap: () => _performSearch('dadu online'),
+                child: Container(
+                  height: 48,
+                  decoration: BoxDecoration(color: gSurface, borderRadius: BorderRadius.circular(24)),
+                  child: Row(children: [
+                    const SizedBox(width: 16), Icon(Icons.search, color: gTextSecondary), const SizedBox(width: 12),
+                    Text('Telusuri', style: TextStyle(color: gTextSecondary, fontSize: 16)),
+                    const Spacer(), Icon(Icons.mic, color: gTextPrimary), const SizedBox(width: 12),
+                    Icon(Icons.camera_alt_outlined, color: gTextPrimary), const SizedBox(width: 16),
+                  ]),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            // Shortcut Chips
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                _buildShortcut(Icons.auto_awesome, 'Mode AI'),
+                _buildShortcut(Icons.graphic_eq, 'Voice'),
+                _buildShortcut(Icons.camera_alt_outlined, 'Lens'),
+              ]),
+            ),
+            const SizedBox(height: 16), Divider(color: Colors.grey[800], height: 1),
+            
+            // Berita
+            if (_isLoadingNews) 
+              const Padding(padding: EdgeInsets.all(32.0), child: CircularProgressIndicator(color: Colors.blue))
+            else 
+              ..._newsList.map((news) => _buildNewsCard(news)).toList(),
           ],
         ),
       ),
-    );
-  }
-
-  AppBar _buildHomeAppBar() {
-    return AppBar(
-      backgroundColor: gBg, elevation: 0, surfaceTintColor: Colors.transparent,
-      leading: IconButton(icon: Icon(Icons.menu, color: gTextPrimary), onPressed: () {}),
-      centerTitle: true,
-      title: Text.rich(TextSpan(children: [
-        TextSpan(text: 'G', style: TextStyle(color: const Color(0xFF4285F4), fontSize: 22, fontWeight: FontWeight.bold)),
-        TextSpan(text: 'o', style: TextStyle(color: const Color(0xFFEA4335), fontSize: 22, fontWeight: FontWeight.bold)),
-        TextSpan(text: 'o', style: TextStyle(color: const Color(0xFFFBBC05), fontSize: 22, fontWeight: FontWeight.bold)),
-        TextSpan(text: 'g', style: TextStyle(color: const Color(0xFF4285F4), fontSize: 22, fontWeight: FontWeight.bold)),
-        TextSpan(text: 'l', style: TextStyle(color: const Color(0xFF34A853), fontSize: 22, fontWeight: FontWeight.bold)),
-        TextSpan(text: 'e', style: TextStyle(color: const Color(0xFFEA4335), fontSize: 22, fontWeight: FontWeight.bold)),
-      ])),
-      actions: [
-        IconButton(icon: Icon(Icons.refresh, color: gTextPrimary), onPressed: _fetchLatestNews),
-        const Padding(padding: EdgeInsets.only(right: 16.0), child: CircleAvatar(radius: 14, backgroundColor: Colors.blueGrey, child: Icon(Icons.person, size: 18))),
-      ],
-    );
-  }
-
-  Widget _buildHomeBody() {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          const SizedBox(height: 20),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: GestureDetector(
-              onTap: () => setState(() => _currentTab = 1),
-              child: Container(
-                height: 48,
-                decoration: BoxDecoration(color: gSurface, borderRadius: BorderRadius.circular(24)),
-                child: Row(children: [
-                  const SizedBox(width: 16), Icon(Icons.search, color: gTextSecondary), const SizedBox(width: 12),
-                  Text('Telusuri', style: TextStyle(color: gTextSecondary, fontSize: 16)),
-                  const Spacer(), Icon(Icons.mic, color: gTextPrimary), const SizedBox(width: 12),
-                  Icon(Icons.camera_alt_outlined, color: gTextPrimary), const SizedBox(width: 16),
-                ]),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              _buildShortcut(Icons.auto_awesome, 'Mode AI'),
-              _buildShortcut(Icons.graphic_eq, 'Voice'),
-              _buildShortcut(Icons.camera_alt_outlined, 'Lens'),
-            ]),
-          ),
-          const SizedBox(height: 16), Divider(color: Colors.grey[800], height: 1),
-          if (_isLoadingNews) const Padding(padding: EdgeInsets.all(32.0), child: CircularProgressIndicator(color: Colors.blue))
-          else ..._newsList.map((news) => _buildNewsCard(news)).toList(),
-        ],
-      ),
-    );
-  }
-
-  AppBar _buildSearchAppBar() {
-    return AppBar(
-      backgroundColor: gBg, elevation: 0, surfaceTintColor: Colors.transparent, titleSpacing: 0,
-      title: Container(
-        height: 48, margin: const EdgeInsets.only(right: 16),
-        decoration: BoxDecoration(color: gSurface, borderRadius: BorderRadius.circular(24)),
-        child: TextField(
-          controller: _searchController, autofocus: true, style: TextStyle(color: gTextPrimary, fontSize: 16),
-          decoration: InputDecoration(
-            hintText: 'Tanya Google', hintStyle: TextStyle(color: gTextSecondary), border: InputBorder.none, isDense: true,
-            contentPadding: const EdgeInsets.symmetric(vertical: 14), prefixIcon: Icon(Icons.search, color: gTextSecondary),
-            suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.mic, color: gTextPrimary), const SizedBox(width: 8), Icon(Icons.camera_alt_outlined, color: gTextPrimary), const SizedBox(width: 8)]),
-          ),
-          onSubmitted: (val) => _performSearch(val),
-        ),
-      ),
-      actions: [IconButton(icon: Icon(Icons.close, color: gTextPrimary), onPressed: () => setState(() { _currentTab = 0; _searchController.clear(); }))],
-    );
-  }
-
-  Widget _buildSearchBody() {
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      children: [
-        Padding(padding: const EdgeInsets.symmetric(vertical: 16), child: Text('Penelusuran trending', style: TextStyle(color: gTextSecondary, fontSize: 14))),
-        ..._trendingList.map((item) => Column(children: [
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: gSurface, shape: BoxShape.circle), child: Icon(Icons.trending_up, color: gTextSecondary, size: 20)),
-            title: Text(item['title']!, style: TextStyle(color: gTextPrimary, fontSize: 16)),
-            subtitle: item['desc']!.isNotEmpty ? Text(item['desc']!, style: TextStyle(color: gTextSecondary, fontSize: 12)) : null,
-            onTap: () => _performSearch(item['title']!),
-          ),
-          Divider(color: Colors.grey[800], height: 1),
-        ])),
-      ],
+      bottomNavigationBar: _buildBottomNav(),
     );
   }
 
@@ -539,6 +521,29 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
           ]),
         )
       ]),
+    );
+  }
+
+  Widget _buildBottomNav() {
+    return NavigationBarTheme(
+      data: NavigationBarThemeData(
+        backgroundColor: gBg,
+        indicatorColor: Colors.blue.withOpacity(0.2),
+        labelTextStyle: MaterialStateProperty.all(TextStyle(color: gTextPrimary, fontSize: 12)),
+        iconTheme: MaterialStateProperty.resolveWith((states) => IconThemeData(color: states.contains(MaterialState.selected) ? Colors.blue[200] : gTextSecondary)),
+      ),
+      child: NavigationBar(
+        selectedIndex: _currentTab,
+        onDestinationSelected: (index) {
+          setState(() => _currentTab = index);
+        },
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Beranda'),
+          NavigationDestination(icon: Icon(Icons.search), selectedIcon: Icon(Icons.search), label: 'Telusuri'),
+          NavigationDestination(icon: Icon(Icons.bookmark_border), selectedIcon: Icon(Icons.bookmark), label: 'Disimpan'),
+          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Setelan'),
+        ],
+      ),
     );
   }
 }
