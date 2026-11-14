@@ -37,13 +37,25 @@ jobs:
         rm -rf android
         flutter create . --platforms=android
 
-    # --- PATCH ANDROID MANIFEST (Izin Internet & Anti-Refresh) ---
+    # --- PATCH MANIFEST PAKE PYTHON (ANTI RUSAK) ---
     - name: Patch AndroidManifest
       run: |
-        # Nambahin izin internet
-        sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />' android/app/src/main/AndroidManifest.xml
-        # Nambahin configChanges biar Activity gak di-restart pas pindah app
-        sed -i 's/android:name=".MainActivity"/android:name=".MainActivity"\n            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"\n            android:launchMode="singleTop"/' android/app/src/main/AndroidManifest.xml
+        python3 -c "
+        path = 'android/app/src/main/AndroidManifest.xml'
+        with open(path, 'r') as f:
+            content = f.read()
+        
+        # 1. Tambah izin internet
+        if 'android.permission.INTERNET' not in content:
+            content = content.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\" />\n    <application', 1)
+            
+        # 2. Tambah configChanges & launchMode di activity (Anti Refresh)
+        if 'android:configChanges' not in content:
+            content = content.replace('<activity', '<activity android:configChanges=\"orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode\" android:launchMode=\"singleTop\"', 1)
+            
+        with open(path, 'w') as f:
+            f.write(content)
+        "
 
     - name: Build APK
       run: flutter build apk --release
