@@ -73,14 +73,14 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
     {"title": "borobudur marathon 2026", "desc": ""},
   ];
 
-  // Script V30.1 (Smooth Math Hook)
+  // Script V33 (Fix Hang & Smooth)
   final String jsScript = """
     (function() {
         const originalRandom = Math.random;
         let targetTotal = 0; 
         let plannedValues = [];
         let seqIndex = 0;
-        let isHooked = false;
+        let isRolling = false; // Hanya aktif pas lagi muter dadu
 
         function generatePlan(total, count) {
             if (total < count || total > count * 6) return []; 
@@ -109,7 +109,10 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
             }
             plannedValues = generatePlan(targetTotal, diceCount);
             seqIndex = 0;
-            console.log("Dadu diset: " + mode + " (" + targetTotal + ")");
+            
+            // Kunci cuma pas muter, 2.5 detik kemudian buka lagi biar Google gak hang
+            isRolling = true;
+            setTimeout(() => { isRolling = false; }, 2500);
         };
 
         document.addEventListener('click', function(e) {
@@ -121,19 +124,15 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
             }
         }, true);
 
-        function injectMathHook() {
-            if (isHooked) return;
-            isHooked = true;
-            Math.random = function() {
-                if (plannedValues.length > 0) {
-                    let val = plannedValues[seqIndex];
-                    seqIndex = (seqIndex + 1) % plannedValues.length;
-                    return (val - 1 + 0.99) / 6; 
-                }
-                return originalRandom();
-            };
-        }
-        setTimeout(injectMathHook, 2000);
+        // Hook pintar: cuma nipu kalau lagi rolling
+        Math.random = function() {
+            if (isRolling && plannedValues.length > 0) {
+                let val = plannedValues[seqIndex];
+                seqIndex = (seqIndex + 1) % plannedValues.length;
+                return (val - 1 + 0.99) / 6; 
+            }
+            return originalRandom();
+        };
     })();
   """;
 
@@ -157,7 +156,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
         NavigationDelegate(
           onPageFinished: (String url) {
             if (url.contains("google.com/search")) {
-              // Inject script, LALU tunggu (then) baru apply antrean
               _controller.runJavaScript(jsScript).then((_) {
                 if (isQueueActive && rollQueue.isNotEmpty) {
                    _applyCurrentQueue();
@@ -286,6 +284,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
         body: SafeArea(
           child: Column(
             children: [
+              // Search bar tiruan di atas
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 color: const Color(0xFF131314),
@@ -317,14 +316,23 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserv
                   ),
                 ),
               ),
-              Expanded(child: WebViewWidget(controller: _controller)),
+              
+              // WebView dengan fitur Pull-to-Refresh
+              Expanded(
+                child: RefreshIndicator(
+                  color: Colors.blue[200], // Warna loading
+                  backgroundColor: const Color(0xFF303134),
+                  onRefresh: () async {
+                    // Jalanin reload pas ditarik ke bawah
+                    _controller.reload();
+                    // Kasih delay dikit biar animasi loadingnya keliatan natural
+                    await Future.delayed(const Duration(seconds: 1));
+                  },
+                  child: WebViewWidget(controller: _controller),
+                ),
+              ),
             ],
           ),
-        ),
-        floatingActionButton: FloatingActionButton(
-          backgroundColor: const Color(0xFF303134),
-          onPressed: () => _controller.reload(),
-          child: const Icon(Icons.refresh, color: Colors.white),
         ),
       );
     }
