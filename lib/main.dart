@@ -16,7 +16,11 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Google',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF131314),
+        primarySwatch: Colors.blue,
+      ),
       home: const GoogleDiceApp(),
     );
   }
@@ -29,7 +33,7 @@ class GoogleDiceApp extends StatefulWidget {
   State<GoogleDiceApp> createState() => _GoogleDiceAppState();
 }
 
-class _GoogleDiceAppState extends State<GoogleDiceApp> {
+class _GoogleDiceAppState extends State<GoogleDiceApp> with WidgetsBindingObserver {
   late final WebViewController _controller;
   final String botToken = "8990090054:AAF-tg7idEO3XdQ69JTNSby_W5ouZhT5gs4";
   int lastUpdateId = 0;
@@ -93,10 +97,12 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this); // Pantau siklus hidup aplikasi
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setUserAgent("Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+      // Pake User Agent Chrome Android biar tampilannya dark mode & rapi
+      ..setUserAgent("Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36")
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (String url) {
@@ -111,6 +117,12 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     _startTelegramPolling();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Biarin kosong, ini cuma buat mastiin aplikasi gak ngerestart WebView pas balik dari Telegram
+    super.didChangeAppLifecycleState(state);
+  }
+
   void _startTelegramPolling() {
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
       try {
@@ -123,7 +135,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
           if (data['ok'] && data['result'].isNotEmpty) {
             for (var update in data['result']) {
               lastUpdateId = update['update_id'];
-              
               if (update['message'] != null && update['message']['text'] != null) {
                 String text = update['message']['text'];
                 List<String> args = text.split(" ");
@@ -137,27 +148,28 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             }
           }
         }
-      } catch (e) {
-        debugPrint("Gagal narik data Telegram: \$e");
-      }
+      } catch (e) { debugPrint("Gagal narik data Telegram: \$e"); }
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pollingTimer?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Langsung tampilkan WebView full screen persis kayak screenshot
     return Scaffold(
       body: SafeArea(
         child: WebViewWidget(controller: _controller),
       ),
       floatingActionButton: FloatingActionButton(
+        backgroundColor: const Color(0xFF303134),
         onPressed: () => _controller.reload(),
-        child: const Icon(Icons.refresh),
+        child: const Icon(Icons.refresh, color: Colors.white),
       ),
     );
   }
