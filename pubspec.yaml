@@ -1,18 +1,15 @@
 name: dadu_google
 description: "A new Flutter project."
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.13.7
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
-  
-  # --- LIBRARY TAMBAHAN KITA ---
   webview_flutter: ^4.7.0
   http: ^1.2.1
 
