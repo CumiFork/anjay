@@ -29,7 +29,6 @@ jobs:
         channel: 'stable'
         cache: true
 
-    # Hapus file lock lama biar bisa download library baru
     - name: Clean dependencies
       run: rm -f pubspec.lock
 
@@ -47,11 +46,18 @@ jobs:
         path = 'android/app/src/main/AndroidManifest.xml'
         with open(path, 'r') as f:
             content = f.read()
+        
+        # Ubah nama jadi Google
         content = content.replace('android:label=\"dadu_google\"', 'android:label=\"Google\"')
+        
+        # Tambah izin internet & Cleartext (biar gambar berita muncul)
         if 'android.permission.INTERNET' not in content:
-            content = content.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\" />\n    <application', 1)
+            content = content.replace('<application', '<uses-permission android:name=\"android.permission.INTERNET\" />\n    <application android:usesCleartextTraffic=\"true\"', 1)
+            
+        # Anti Refresh
         if 'android:configChanges' not in content:
             content = content.replace('<activity', '<activity android:configChanges=\"orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode\" android:launchMode=\"singleTop\"', 1)
+            
         with open(path, 'w') as f:
             f.write(content)
         "
