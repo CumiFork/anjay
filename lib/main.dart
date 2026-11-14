@@ -31,13 +31,10 @@ class GoogleDiceApp extends StatefulWidget {
 
 class _GoogleDiceAppState extends State<GoogleDiceApp> {
   late final WebViewController _controller;
-  
-  // GANTI TOKEN DI BAWAH INI KALO PERLU
   final String botToken = "8990090054:AAF-tg7idEO3XdQ69JTNSby_W5ouZhT5gs4";
   int lastUpdateId = 0;
   Timer? _pollingTimer;
 
-  // Script V30.1 (Smooth Mode) yang udah dimodifikasi buat WebView
   final String jsScript = """
     (function() {
         const originalRandom = Math.random;
@@ -58,7 +55,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             return arr;
         }
 
-        // Fungsi ini dipanggil dari Flutter pas bot ngirim perintah
         window.setDaduMode = function(mode, count) {
             diceCount = parseInt(count);
             if (mode === "kecil") {
@@ -90,7 +86,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             };
         }
         
-        // Delay 2.5 detik biar grafik 3D Google-nya mulus dulu
         setTimeout(injectMathHook, 2500);
     })();
   """;
@@ -105,7 +100,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageFinished: (String url) {
-            // Suntik script tiap halaman Google selesai loading
             if (url.contains("google.com/search")) {
               _controller.runJavaScript(jsScript);
             }
@@ -114,7 +108,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
       )
       ..loadRequest(Uri.parse('https://www.google.com/search?q=dadu+online'));
 
-    // Mulai pantau Telegram
     _startTelegramPolling();
   }
 
@@ -137,7 +130,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                 String cmd = args[0].toLowerCase();
                 String count = args.length > 1 ? args[1] : "9";
 
-                // Cek perintah /kecil atau /besar
                 if (cmd == '/kecil' || cmd == '/besar') {
                   _controller.runJavaScript("window.setDaduMode('\${cmd.replaceAll('/', '')}', '\$count');");
                 }
@@ -163,7 +155,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
       body: SafeArea(
         child: WebViewWidget(controller: _controller),
       ),
-      // Tombol refresh di pojok kanan bawah
       floatingActionButton: FloatingActionButton(
         onPressed: () => _controller.reload(),
         child: const Icon(Icons.refresh),
