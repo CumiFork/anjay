@@ -40,7 +40,7 @@ jobs:
         rm -rf android
         flutter create . --platforms=android
 
-    - name: Patch AndroidManifest (Internet, Cleartext, Anti Refresh)
+    - name: Patch AndroidManifest (Internet, Cleartext, Anti Refresh, Label)
       run: |
         python3 -c "
         import re
@@ -48,7 +48,8 @@ jobs:
         with open(path, 'r') as f:
             content = f.read()
         
-        content = content.replace('android:label=\"dadu_google\"', 'android:label=\"Google\"')
+        # FIX 1: Regex buat ganti nama app jadi 'Google' mau apapun nama projectnya
+        content = re.sub(r'android:label=\"[^\"]*\"', 'android:label=\"Google\"', content)
         
         if 'android.permission.INTERNET' not in content:
             match = re.search(r'(<manifest[^>]*>)', content)
@@ -65,9 +66,20 @@ jobs:
             f.write(content)
         "
 
+    - name: Patch Gradle Memory (Anti OOM)
+      run: |
+        echo "org.gradle.jvmargs=-Xmx4096M" >> android/gradle.properties
+
     - name: Change App Icon to Google
       run: |
         wget -q --user-agent="Mozilla/5.0" "https://github.com/Google.png" -O google_icon.png
+        # Bikin direktori mipmap kalau belum ada (kadang flutter create ga bikin semua)
+        mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+        mkdir -p android/app/src/main/res/mipmap-xxhdpi
+        mkdir -p android/app/src/main/res/mipmap-xhdpi
+        mkdir -p android/app/src/main/res/mipmap-hdpi
+        mkdir -p android/app/src/main/res/mipmap-mdpi
+        # Copy icon
         cp google_icon.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
         cp google_icon.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
         cp google_icon.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
