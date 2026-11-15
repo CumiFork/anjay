@@ -94,8 +94,8 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     {"title": "borobudur marathon 2026", "desc": ""},
   ];
 
-  // JS SCRIPT V41 (Bridge Fixed, Dynamic Sides, DOM Fallback)
-  final String jsScript = """
+  // JS SCRIPT V41 (Pake r""" biar $ dan \ gak dianggap variabel Dart)
+  final String jsScript = r"""
     (function() {
         if (window.daduHacked) return;
         window.daduHacked = true;
@@ -155,7 +155,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
             
             isRolling = true;
             if(timeoutId) clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => { isRolling = false; }, 4000); // 4 detik timeout
+            timeoutId = setTimeout(() => { isRolling = false; }, 4000);
         };
 
         document.addEventListener('pointerdown', function(e) {
@@ -319,7 +319,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                 String cmd = args[0].toLowerCase();
 
                 if (cmd == '/kecil' || cmd == '/besar') {
-                  // FIX: Pake tryParse biar ga crash kalau input salah
                   if (args.length > 1) {
                     int? parsedCount = int.tryParse(args[1]);
                     if (parsedCount != null) activeDiceCount = parsedCount;
@@ -406,8 +405,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                         mediaPlaybackRequiresUserGesture: false,
                         useHybridComposition: true,
                         javaScriptEnabled: true,
-                        domStorageEnabled: true, // Wajib buat Google
-                        // PENTING: Nyamar jadi Chrome Android biar ga diblokir
+                        domStorageEnabled: true, 
                         userAgent: "Mozilla/5.0 (Linux; Android 13; SM-S908E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
                         cacheEnabled: false,
                       ),
@@ -419,7 +417,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                           callback: (args) {
                             if (args.isNotEmpty && args[0] == "ROLLED" && isQueueActive && !isAdvancing) {
                               isAdvancing = true;
-                              // Waktu nunggu animasi selesai dinaikin jadi 4.5 detik biar aman
                               Future.delayed(const Duration(milliseconds: 4500), () { 
                                 _advanceQueue(); 
                                 isAdvancing = false; 
