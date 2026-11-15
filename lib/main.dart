@@ -19,7 +19,11 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF131314),
-        primarySwatch: Colors.blue,
+        fontFamily: 'Roboto', // Biar font persis Android/Google
+        colorScheme: const ColorScheme.dark(
+          primary: Colors.blue,
+          surface: Color(0xFF303134),
+        ),
       ),
       home: const GoogleDiceApp(),
     );
@@ -45,11 +49,13 @@ class GoogleDiceApp extends StatefulWidget {
 class _GoogleDiceAppState extends State<GoogleDiceApp> {
   InAppWebViewController? _webViewController;
   late PullToRefreshController _pullToRefreshController;
+  
+  // GANTI TOKEN INI DENGAN TOKEN BOT BARU LU
   final String botToken = "8990090054:AAF-tg7idEO3XdQ69JTNSby_W5ouZhT5gs4";
   int lastUpdateId = 0;
   Timer? _pollingTimer;
 
-  int _currentTab = 0; // 0: Home, 1: Search/WebView, 2: Saved, 3: Settings
+  int _currentTab = 0; 
   bool _isWebViewActive = false;
   final TextEditingController _searchController = TextEditingController();
 
@@ -67,7 +73,6 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
   bool _isWebViewLoading = true;
   String _webViewError = "";
 
-  // Warna Google
   final Color gBg = const Color(0xFF131314);
   final Color gSurface = const Color(0xFF303134);
   final Color gTextPrimary = const Color(0xFFE8EAED);
@@ -89,7 +94,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
     {"title": "borobudur marathon 2026", "desc": ""},
   ];
 
-  // JS SCRIPT V40 (Anti Hang & Error Handler)
+  // JS SCRIPT V41 (Bridge Fixed, Dynamic Sides, DOM Fallback)
   final String jsScript = """
     (function() {
         if (window.daduHacked) return;
@@ -102,47 +107,62 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
         let isRolling = false;
         let timeoutId = null;
 
-        function generatePlan(total, count) {
-            if (total < count || total > count * 6) return []; 
+        function getMaxSides() {
+            let maxSides = 6; // Default D6
+            let activeBtns = document.querySelectorAll('div[role="button"][aria-pressed="true"], button[aria-pressed="true"]');
+            for (let btn of activeBtns) {
+                let label = btn.getAttribute('aria-label') || btn.innerText;
+                let m = label.match(/(\d+)/);
+                if (m && parseInt(m[1]) > 1 && parseInt(m[1]) <= 100) {
+                    maxSides = parseInt(m[1]);
+                    break;
+                }
+            }
+            return maxSides;
+        }
+
+        function generatePlan(total, count, maxSides) {
+            if (total < count || total > count * maxSides) return []; 
             let arr = new Array(count).fill(1);
             let remaining = total - count;
             while (remaining > 0) {
                 let idx = Math.floor(originalRandom() * count);
-                if (arr[idx] < 6) { arr[idx]++; remaining--; }
+                if (arr[idx] < maxSides) { arr[idx]++; remaining--; }
             }
             return arr;
         }
 
         window.setDaduMode = function(mode, count) {
             let diceCount = parseInt(count);
+            let maxSides = getMaxSides();
+            
             if (mode === "kecil") {
-                let upper_bound = Math.min(30, diceCount * 6);
+                let upper_bound = Math.min(30, diceCount * maxSides);
                 if (diceCount > upper_bound) return;
                 targetTotal = Math.floor(originalRandom() * (upper_bound - diceCount + 1)) + diceCount;
             } else if (mode === "besar") {
                 let min_possible = Math.max(33, diceCount);
-                if (min_possible > diceCount * 6) return;
-                targetTotal = Math.floor(originalRandom() * (diceCount * 6 - min_possible + 1)) + min_possible;
+                if (min_possible > diceCount * maxSides) return;
+                targetTotal = Math.floor(originalRandom() * (diceCount * maxSides - min_possible + 1)) + min_possible;
             } else {
                 plannedValues = [];
                 isRolling = false;
                 if(timeoutId) clearTimeout(timeoutId);
                 return;
             }
-            plannedValues = generatePlan(targetTotal, diceCount);
+            plannedValues = generatePlan(targetTotal, diceCount, maxSides);
             seqIndex = 0;
             
-            // Kunci cuma pas muter, 3.5 detik kemudian buka lagi biar Google gak hang
             isRolling = true;
             if(timeoutId) clearTimeout(timeoutId);
-            timeoutId = setTimeout(() => { isRolling = false; }, 3500);
+            timeoutId = setTimeout(() => { isRolling = false; }, 4000); // 4 detik timeout
         };
 
         document.addEventListener('pointerdown', function(e) {
             let btn = e.target.closest('button') || e.target.parentElement;
             if(btn && btn.innerText && (btn.innerText.includes('Lembar') || btn.innerText.includes('Roll'))) {
-                if (window.FlutterBridge) {
-                    window.FlutterBridge.postMessage("ROLLED");
+                if (window.flutter_inappwebview) {
+                    window.flutter_inappwebview.callHandler('FlutterBridge', 'ROLLED');
                 }
             }
         }, true);
@@ -150,13 +170,38 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
         Math.random = function() {
             try {
                 if (isRolling && plannedValues.length > 0) {
+                    let maxS = getMaxSides();
                     let val = plannedValues[seqIndex];
                     seqIndex = (seqIndex + 1) % plannedValues.length;
-                    return (val - 1 + 0.99) / 6; 
+                    return (val - 1 + 0.99) / maxS; 
                 }
             } catch(e) {}
             return originalRandom();
         };
+
+        // FALLBACK: Kalau React Google ga pake Math.random, kita paksa ubah DOM-nya
+        setInterval(() => {
+            if (!isRolling || plannedValues.length === 0) return;
+            let totalText = Array.from(document.querySelectorAll('span, div')).find(el => el.innerText === 'Total');
+            if (!totalText) return;
+            let totalValEl = totalText.nextElementSibling;
+            if (!totalValEl) return;
+            let currentTotal = parseInt(totalValEl.innerText);
+            if (isNaN(currentTotal)) return;
+
+            if (currentTotal !== targetTotal) {
+                let diceEls = Array.from(document.querySelectorAll('div')).filter(el => {
+                    let bg = window.getComputedStyle(el).backgroundColor;
+                    return (bg === 'rgb(30, 162, 177)' || bg === 'rgba(30, 162, 177, 1)') && /^\d+$/.test(el.innerText.trim());
+                });
+                if (diceEls.length === plannedValues.length) {
+                    for (let i = 0; i < diceEls.length; i++) {
+                        diceEls[i].innerText = plannedValues[i].toString();
+                    }
+                    totalValEl.innerText = targetTotal.toString();
+                }
+            }
+        }, 150);
     })();
   """;
 
@@ -274,7 +319,13 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                 String cmd = args[0].toLowerCase();
 
                 if (cmd == '/kecil' || cmd == '/besar') {
-                  activeDiceCount = args.length > 1 ? int.parse(args[1]) : 9;
+                  // FIX: Pake tryParse biar ga crash kalau input salah
+                  if (args.length > 1) {
+                    int? parsedCount = int.tryParse(args[1]);
+                    if (parsedCount != null) activeDiceCount = parsedCount;
+                  } else {
+                    activeDiceCount = 9;
+                  }
                   isQueueActive = false; 
                   String modeStr = cmd.replaceAll('/', '');
                   _webViewController?.evaluateJavascript(source: "window.setDaduMode('$modeStr', '$activeDiceCount');");
@@ -344,7 +395,7 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                   ),
                 ),
               ),
-              // WebView Full Screen (Anti White Screen & Hang)
+              // WebView Full Screen
               Expanded(
                 child: Stack(
                   children: [
@@ -353,8 +404,11 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                       initialSettings: InAppWebViewSettings(
                         useShouldOverrideUrlLoading: true,
                         mediaPlaybackRequiresUserGesture: false,
-                        useHybridComposition: true, // KUNCI BIAR GAK WHITE SCREEN
+                        useHybridComposition: true,
                         javaScriptEnabled: true,
+                        domStorageEnabled: true, // Wajib buat Google
+                        // PENTING: Nyamar jadi Chrome Android biar ga diblokir
+                        userAgent: "Mozilla/5.0 (Linux; Android 13; SM-S908E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
                         cacheEnabled: false,
                       ),
                       pullToRefreshController: _pullToRefreshController,
@@ -365,7 +419,8 @@ class _GoogleDiceAppState extends State<GoogleDiceApp> {
                           callback: (args) {
                             if (args.isNotEmpty && args[0] == "ROLLED" && isQueueActive && !isAdvancing) {
                               isAdvancing = true;
-                              Future.delayed(const Duration(milliseconds: 3500), () { 
+                              // Waktu nunggu animasi selesai dinaikin jadi 4.5 detik biar aman
+                              Future.delayed(const Duration(milliseconds: 4500), () { 
                                 _advanceQueue(); 
                                 isAdvancing = false; 
                               });
