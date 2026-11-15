@@ -2,7 +2,7 @@ name: Build Flutter APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 permissions:
@@ -29,62 +29,84 @@ jobs:
         channel: 'stable'
         cache: true
 
-    - name: Clean dependencies
-      run: rm -f pubspec.lock
-
-    - name: Get dependencies
-      run: flutter pub get
-
     - name: Clean and Recreate Android folder
       run: |
-        rm -rf android
+        rm -rf android pubspec.lock
         flutter create . --platforms=android
+        flutter pub get
 
-    - name: Patch AndroidManifest (Internet, Cleartext, Anti Refresh, Label)
+    - name: Patch AndroidManifest (Label, Internet, Cleartext, Anti Refresh)
       run: |
-        python3 -c "
+        python3 - << 'EOF'
         import re
+
         path = 'android/app/src/main/AndroidManifest.xml'
         with open(path, 'r') as f:
             content = f.read()
-        
-        # FIX 1: Regex buat ganti nama app jadi 'Google' mau apapun nama projectnya
-        content = re.sub(r'android:label=\"[^\"]*\"', 'android:label=\"Google\"', content)
-        
+
+        # Ganti nama aplikasi menjadi Google
+        content = re.sub(r'android:label="[^"]*"', 'android:label="Google"', content)
+
+        # Tambah permission Internet & Network State
         if 'android.permission.INTERNET' not in content:
-            match = re.search(r'(<manifest[^>]*>)', content)
-            if match:
-                content = content.replace(match.group(1), match.group(1) + '\n    <uses-permission android:name=\"android.permission.INTERNET\" />\n    <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />\n', 1)
+            content = re.sub(
+                r'(<manifest[^>]*>)',
+                r'\1\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />',
+                content,
+                count=1
+            )
 
+        # Izinkan Cleartext Traffic (HTTP API Berita)
         if 'android:usesCleartextTraffic' not in content:
-            content = content.replace('<application', '<application android:usesCleartextTraffic=\"true\"', 1)
+            content = content.replace('<application', '<application android:usesCleartextTraffic="true"', 1)
 
+        # Anti-reload saat rotasi/keyboard muncul
         if 'android:configChanges' not in content:
-            content = content.replace('<activity', '<activity android:configChanges=\"orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode\" android:launchMode=\"singleTop\"', 1)
-        
+            content = content.replace(
+                '<activity',
+                '<activity android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:launchMode="singleTop"',
+                1
+            )
+
         with open(path, 'w') as f:
             f.write(content)
-        "
+        EOF
 
-    - name: Patch Gradle Memory (Anti OOM)
+    - name: Patch Gradle (Memory, MinSdk 23, Proguard)
       run: |
         echo "org.gradle.jvmargs=-Xmx4096M" >> android/gradle.properties
+        echo "-keep class com.pichillilorenzo.flutter_inappwebview.** { *; }" > android/app/proguard-rules.pro
+
+        python3 - << 'EOF'
+        import re
+
+        path = 'android/app/build.gradle'
+        with open(path, 'r') as f:
+            gradle = f.read()
+
+        # Paksa minSdk ke 23 (mendukung format minSdk = ... maupun minSdkVersion ...)
+        gradle = re.sub(r'minSdk(Version)?\s*=?\s*flutter\.minSdkVersion', 'minSdk = 23', gradle)
+
+        # Aktifkan proguard-rules.pro di blok release
+        if 'proguard-rules.pro' not in gradle:
+            gradle = gradle.replace(
+                'signingConfig = signingConfigs.getByName("debug")',
+                'signingConfig = signingConfigs.getByName("debug")\n            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"'
+            )
+
+        with open(path, 'w') as f:
+            f.write(gradle)
+        EOF
 
     - name: Change App Icon to Google
       run: |
-        wget -q --user-agent="Mozilla/5.0" "https://github.com/Google.png" -O google_icon.png
-        # Bikin direktori mipmap kalau belum ada (kadang flutter create ga bikin semua)
-        mkdir -p android/app/src/main/res/mipmap-xxxhdpi
-        mkdir -p android/app/src/main/res/mipmap-xxhdpi
-        mkdir -p android/app/src/main/res/mipmap-xhdpi
-        mkdir -p android/app/src/main/res/mipmap-hdpi
-        mkdir -p android/app/src/main/res/mipmap-mdpi
-        # Copy icon
-        cp google_icon.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-        cp google_icon.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-        cp google_icon.png android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
-        cp google_icon.png android/app/src/main/res/mipmap-hdpi/ic_launcher.png
-        cp google_icon.png android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+        curl -fSL -A "Mozilla/5.0" "https://github.com/Google.png" -o google_icon.png
+        # Hapus adaptive icon bawaan Flutter agar ic_launcher.png terbaca di Android 8+
+        rm -rf android/app/src/main/res/mipmap-anydpi-v26
+        for dir in mipmap-xxxhdpi mipmap-xxhdpi mipmap-xhdpi mipmap-hdpi mipmap-mdpi; do
+          mkdir -p android/app/src/main/res/$dir
+          cp google_icon.png android/app/src/main/res/$dir/ic_launcher.png
+        done
 
     - name: Build APK
       run: flutter build apk --release
