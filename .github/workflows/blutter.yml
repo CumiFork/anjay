@@ -1,0 +1,39 @@
+name: Blutter Decompile
+
+on:
+  workflow_dispatch:
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build clang pkg-config libicu-dev git python3 python3-pip
+
+    - name: Clone Blutter
+      run: git clone https://github.com/worawit/blutter.git
+
+    - name: Install Python Reqs
+      run: pip3 install requests --break-system-packages
+
+    - name: Run Blutter
+      run: |
+        cd blutter
+        python3 blutter.py ../extract/ out_v8a
+
+    - name: Zip Output
+      run: |
+        cd blutter
+        zip -r out_v8a.zip out_v8a/
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: decompiled-dart
+        path: blutter/out_v8a.zip
+        retention-days: 1
