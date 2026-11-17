@@ -26,14 +26,9 @@ jobs:
         cd blutter
         python3 blutter.py ../extract/ out_v8a
 
-    - name: Zip Output
-      run: |
-        cd blutter
-        zip -r out_v8a.zip out_v8a/
-
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: decompiled-dart
-        path: blutter/out_v8a.zip
+        path: blutter/out_v8a/
         retention-days: 1
