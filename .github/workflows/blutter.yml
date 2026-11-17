@@ -13,7 +13,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake ninja-build clang pkg-config libicu-dev git python3 python3-pip
+        sudo apt-get install -y cmake ninja-build clang pkg-config libicu-dev git python3 python3-pip libcapstone-dev
 
     - name: Clone Blutter
       run: git clone https://github.com/worawit/blutter.git
