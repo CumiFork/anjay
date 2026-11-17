@@ -19,7 +19,7 @@ jobs:
       run: git clone https://github.com/worawit/blutter.git
 
     - name: Install Python Reqs
-      run: pip3 install requests --break-system-packages
+      run: pip3 install requests pyelftools --break-system-packages
 
     - name: Run Blutter
       run: |
